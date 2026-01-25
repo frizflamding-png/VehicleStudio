@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 
@@ -263,12 +264,12 @@ export default function AccountPage() {
                   ) : (
                     <>
                       <p className="text-[11px] text-slate-600">No active subscription</p>
-                      <button
-                        disabled
-                        className="w-full px-2 py-1.5 rounded text-xs font-medium bg-slate-800/60 text-slate-500 cursor-not-allowed border border-slate-700/50"
+                      <Link
+                        href="/upgrade"
+                        className="block w-full px-2 py-1.5 rounded text-xs font-medium bg-[#1FB6A6] text-white text-center hover:bg-[#22C6B5] active:bg-[#179E90] transition-colors"
                       >
                         Upgrade
-                      </button>
+                      </Link>
                     </>
                   )}
                 </div>
@@ -328,15 +329,24 @@ export default function AccountPage() {
             <div className="flex justify-between"><span className="text-slate-500">Plan</span><span>{planLabel}</span></div>
             <div className="flex justify-between"><span className="text-slate-500">Status</span><span>{statusLabel}</span></div>
           </div>
-          <button
-            onClick={handleManageSubscription}
-            disabled={!hasSubscription || portalLoading}
-            className={`w-full mt-3 py-2 rounded text-sm font-medium ${
-              !hasSubscription || portalLoading ? 'bg-slate-800 text-slate-500' : 'bg-[#1FB6A6] text-white'
-            }`}
-          >
-            {hasSubscription ? (portalLoading ? 'Opening portal...' : 'Manage subscription') : 'Upgrade'}
-          </button>
+          {hasSubscription ? (
+            <button
+              onClick={handleManageSubscription}
+              disabled={portalLoading}
+              className={`w-full mt-3 py-2 rounded text-sm font-medium ${
+                portalLoading ? 'bg-slate-800 text-slate-500' : 'bg-[#1FB6A6] text-white'
+              }`}
+            >
+              {portalLoading ? 'Opening portal...' : 'Manage subscription'}
+            </button>
+          ) : (
+            <Link
+              href="/upgrade"
+              className="block w-full mt-3 py-2 rounded text-sm font-medium bg-[#1FB6A6] text-white text-center hover:bg-[#22C6B5] active:bg-[#179E90] transition-colors"
+            >
+              Upgrade
+            </Link>
+          )}
         </div>
 
         <button onClick={handleSignOut} className="w-full py-3 text-red-400 border border-red-500/30 rounded-lg text-sm">

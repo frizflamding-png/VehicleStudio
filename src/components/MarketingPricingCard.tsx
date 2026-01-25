@@ -25,6 +25,14 @@ export default function MarketingPricingCard({ onSubscribe }: MarketingPricingCa
     return createClient();
   }, []);
 
+  const setCheckoutParams = () => {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('checkout', 'true');
+    url.searchParams.set('plan', cycle);
+    window.history.replaceState({}, '', url.toString());
+  };
+
   const handleSubscribe = async () => {
     setLoading(true);
     setError('');
@@ -44,10 +52,7 @@ export default function MarketingPricingCard({ onSubscribe }: MarketingPricingCa
       if (supabase && onSubscribe) {
         const { data: authData } = await supabase.auth.getUser();
         if (!authData.user) {
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('postAuthCheckout', 'true');
-            localStorage.setItem('postAuthPlan', cycle);
-          }
+          setCheckoutParams();
           setLoading(false);
           onSubscribe();
           return;

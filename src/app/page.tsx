@@ -27,7 +27,7 @@ export default function Home() {
     setIsAuthOpen(false);
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      if (params.get('auth')) {
+      if (params.get('auth') || params.get('checkout') || params.get('plan')) {
         router.replace('/');
       }
     }
