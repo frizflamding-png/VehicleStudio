@@ -50,6 +50,34 @@ export default function AuthModal({ isOpen, mode, onClose, onModeChange }: AuthM
     };
   }, [isOpen, onClose]);
 
+  const startPostAuthCheckout = async () => {
+    const plan = localStorage.getItem('postAuthPlan');
+    const priceId =
+      plan === 'yearly'
+        ? process.env.NEXT_PUBLIC_STRIPE_PRICE_YEARLY
+        : process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY;
+
+    localStorage.removeItem('postAuthCheckout');
+    localStorage.removeItem('postAuthPlan');
+
+    if (!priceId) {
+      throw new Error('Stripe pricing is not configured.');
+    }
+
+    const response = await fetch('/api/stripe/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ priceId }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data?.error || 'Unable to start checkout');
+    }
+    if (data?.url) {
+      window.location.href = data.url;
+    }
+  };
+
   const handleSignIn = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!supabase) return;
@@ -67,7 +95,18 @@ export default function AuthModal({ isOpen, mode, onClose, onModeChange }: AuthM
       return;
     }
 
+    const shouldCheckout = localStorage.getItem('postAuthCheckout') === 'true';
     onClose();
+    if (shouldCheckout) {
+      try {
+        await startPostAuthCheckout();
+        return;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unable to start checkout');
+        setLoading(false);
+        return;
+      }
+    }
     router.push('/studio');
     router.refresh();
   };
@@ -102,7 +141,18 @@ export default function AuthModal({ isOpen, mode, onClose, onModeChange }: AuthM
     }
 
     if (signUpData?.session) {
+      const shouldCheckout = localStorage.getItem('postAuthCheckout') === 'true';
       onClose();
+      if (shouldCheckout) {
+        try {
+          await startPostAuthCheckout();
+          return;
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Unable to start checkout');
+          setLoading(false);
+          return;
+        }
+      }
       router.push('/studio');
       router.refresh();
       return;

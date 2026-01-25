@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 
 type BillingCycle = 'monthly' | 'yearly';
 
@@ -19,12 +20,12 @@ export default function MarketingPricingCard({ onSubscribe }: MarketingPricingCa
   const [error, setError] = useState('');
   const activePricing = PRICING[cycle];
 
-  const handleSubscribe = async () => {
-    if (onSubscribe) {
-      onSubscribe();
-      return;
-    }
+  const supabase = useMemo(() => {
+    if (!isSupabaseConfigured()) return null;
+    return createClient();
+  }, []);
 
+  const handleSubscribe = async () => {
     setLoading(true);
     setError('');
 
@@ -40,6 +41,19 @@ export default function MarketingPricingCard({ onSubscribe }: MarketingPricingCa
     }
 
     try {
+      if (supabase && onSubscribe) {
+        const { data: authData } = await supabase.auth.getUser();
+        if (!authData.user) {
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('postAuthCheckout', 'true');
+            localStorage.setItem('postAuthPlan', cycle);
+          }
+          setLoading(false);
+          onSubscribe();
+          return;
+        }
+      }
+
       const response = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -49,7 +49,7 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   // Protected routes
-  const protectedPaths = ['/upload', '/batch', '/settings', '/results', '/studio', '/onboarding'];
+  const protectedPaths = ['/upload', '/batch', '/settings', '/results', '/studio', '/onboarding', '/upgrade'];
   const isProtectedPath = protectedPaths.some((path) =>
     request.nextUrl.pathname.startsWith(path)
   );
@@ -70,6 +70,30 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = '/upload';
     return NextResponse.redirect(url);
+  }
+
+  // Paywall for Studio routes
+  const paidPaths = ['/upload', '/batch', '/settings', '/results', '/studio'];
+  const isPaidPath = paidPaths.some((path) =>
+    request.nextUrl.pathname.startsWith(path)
+  );
+
+  if (user && isPaidPath) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('stripe_subscription_status')
+      .eq('id', user.id)
+      .maybeSingle<{ stripe_subscription_status: string | null }>();
+
+    const status = profile?.stripe_subscription_status ?? '';
+    const isPaid = status === 'active' || status === 'trialing';
+
+    if (!isPaid) {
+      const url = request.nextUrl.clone();
+      url.pathname = '/upgrade';
+      url.searchParams.set('reason', 'upgrade');
+      return NextResponse.redirect(url);
+    }
   }
 
   return supabaseResponse;
