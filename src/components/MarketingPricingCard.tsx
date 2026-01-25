@@ -1,13 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 
 type BillingCycle = 'monthly' | 'yearly';
 
 const PRICING: Record<BillingCycle, { price: string; label: string }> = {
-  monthly: { price: '$99', label: 'per month' },
-  yearly: { price: '$999', label: 'per year' },
+  monthly: { price: '899 kr', label: 'per month' },
+  yearly: { price: '8 990 kr', label: 'per year' },
 };
 
 type MarketingPricingCardProps = {
@@ -16,7 +15,48 @@ type MarketingPricingCardProps = {
 
 export default function MarketingPricingCard({ onSubscribe }: MarketingPricingCardProps) {
   const [cycle, setCycle] = useState<BillingCycle>('monthly');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const activePricing = PRICING[cycle];
+
+  const handleSubscribe = async () => {
+    if (onSubscribe) {
+      onSubscribe();
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    const priceId =
+      cycle === 'monthly'
+        ? process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY
+        : process.env.NEXT_PUBLIC_STRIPE_PRICE_YEARLY;
+
+    if (!priceId) {
+      setError('Stripe pricing is not configured.');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priceId }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || 'Unable to start checkout');
+      }
+      if (data?.url) {
+        window.location.href = data.url;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to start checkout');
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="bg-slate-900 rounded-xl border border-slate-800 p-8 text-left">
@@ -85,22 +125,18 @@ export default function MarketingPricingCard({ onSubscribe }: MarketingPricingCa
         </li>
       </ul>
 
-      {onSubscribe ? (
-        <button
-          type="button"
-          onClick={onSubscribe}
-          className="block w-full px-6 py-3 bg-[#1FB6A6] text-white font-medium rounded-lg text-center hover:bg-[#22C6B5] active:bg-[#179E90] transition-colors"
-        >
-          Subscribe
-        </button>
-      ) : (
-        <Link
-          href="/?auth=signup"
-          className="block w-full px-6 py-3 bg-[#1FB6A6] text-white font-medium rounded-lg text-center hover:bg-[#22C6B5] active:bg-[#179E90] transition-colors"
-        >
-          Subscribe
-        </Link>
+      {error && (
+        <p className="mb-3 text-sm text-red-400">{error}</p>
       )}
+
+      <button
+        type="button"
+        onClick={handleSubscribe}
+        disabled={loading}
+        className="block w-full px-6 py-3 bg-[#1FB6A6] text-white font-medium rounded-lg text-center hover:bg-[#22C6B5] active:bg-[#179E90] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+      >
+        {loading ? 'Redirecting...' : 'Subscribe'}
+      </button>
     </div>
   );
 }
