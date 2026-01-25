@@ -70,14 +70,29 @@ export default function Home() {
         </section>
 
         {/* Mobile Hero */}
-        <section className="lg:hidden px-6 py-8 text-center">
-          <h1 className="text-3xl font-bold mb-3 bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">
-            VehicleStudio
+        <section className="lg:hidden px-5 pt-6 pb-8 text-left">
+          <h1 className="text-2xl font-semibold text-white mb-2">
+            Vehicle photo processing for dealerships
           </h1>
-          <p className="text-slate-400 text-base max-w-xs mx-auto mb-8">
-            Professional car photos with branded backgrounds in seconds
+          <p className="text-sm text-slate-400 max-w-sm mb-6">
+            Consistent studio backgrounds and branding for inventory workflows.
           </p>
-          <MarketingHeroActions variant="mobile" onSignIn={openSignIn} onSignUp={openSignUp} />
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={openSignUp}
+              className="px-4 py-2 text-sm font-semibold bg-[#1FB6A6] text-white rounded-md hover:bg-[#22C6B5] active:bg-[#179E90] transition-colors"
+            >
+              Start processing photos
+            </button>
+            <button
+              type="button"
+              onClick={openSignIn}
+              className="text-sm text-slate-300 hover:text-white transition-colors"
+            >
+              Sign in
+            </button>
+          </div>
         </section>
 
         {/* ===== PRODUCT PREVIEW (Desktop) ===== */}
@@ -276,43 +291,50 @@ export default function Home() {
         </section>
 
         {/* Mobile Features */}
-        <section className="lg:hidden px-6 py-8">
-          <div className="space-y-4">
-            <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-800/30 border border-slate-700/30">
-              <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-cyan-500/20 flex items-center justify-center">
-                <svg className="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <section className="lg:hidden px-5 pb-8">
+          <div className="border-t border-slate-800/70 pt-5">
+            <div className="space-y-4">
+              <div className="flex items-start gap-3">
+                <svg className="w-4 h-4 text-cyan-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-white">Automated background removal</h3>
+                  <p className="text-xs text-slate-400">Consistent cutouts for dealer inventory.</p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-medium text-white">AI Background Removal</h3>
-                <p className="text-sm text-slate-400">Clean cutouts powered by remove.bg</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-800/30 border border-slate-700/30">
-              <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
-                <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="h-px bg-slate-800/70" />
+              <div className="flex items-start gap-3">
+                <svg className="w-4 h-4 text-blue-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
                 </svg>
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-white">Studio-quality templates</h3>
+                  <p className="text-xs text-slate-400">Clean showroom scenes built for listings.</p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-medium text-white">Studio Backgrounds</h3>
-                <p className="text-sm text-slate-400">Professional templates included</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-800/30 border border-slate-700/30">
-              <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center">
-                <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="h-px bg-slate-800/70" />
+              <div className="flex items-start gap-3">
+                <svg className="w-4 h-4 text-purple-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                 </svg>
-              </div>
-              <div>
-                <h3 className="font-medium text-white">Your Logo Added</h3>
-                <p className="text-sm text-slate-400">Branded output ready to share</p>
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-white">Consistent branded output</h3>
+                  <p className="text-xs text-slate-400">Apply dealership branding across inventory.</p>
+                </div>
               </div>
             </div>
+          </div>
+        </section>
+
+        {/* Mobile Pricing */}
+        <section className="lg:hidden px-5 pb-10">
+          <div className="border-t border-slate-800/70 pt-6">
+            <h2 className="text-lg font-semibold text-white mb-2">Pricing</h2>
+            <p className="text-sm text-slate-400 mb-4">
+              Simple subscription pricing for dealership teams.
+            </p>
+            <MarketingPricingCard onSubscribe={openSignUp} />
           </div>
         </section>
 

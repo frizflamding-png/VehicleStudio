@@ -6,7 +6,7 @@ import Link from 'next/link';
 type BillingCycle = 'monthly' | 'yearly';
 
 const PRICING: Record<BillingCycle, { price: string; label: string }> = {
-  monthly: { price: '$100', label: 'per month' },
+  monthly: { price: '$99', label: 'per month' },
   yearly: { price: '$999', label: 'per year' },
 };
 
