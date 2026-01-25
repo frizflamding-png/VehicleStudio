@@ -49,7 +49,7 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   // Protected routes
-  const protectedPaths = ['/upload', '/batch', '/settings', '/results', '/studio', '/onboarding', '/upgrade'];
+  const protectedPaths = ['/upload', '/batch', '/settings', '/results', '/studio', '/onboarding', '/upgrade', '/account'];
   const isProtectedPath = protectedPaths.some((path) =>
     request.nextUrl.pathname.startsWith(path)
   );
@@ -72,13 +72,14 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Paywall for Studio routes
+  // Paywall for Studio routes (allow account even if unpaid)
   const paidPaths = ['/upload', '/batch', '/settings', '/results', '/studio'];
   const isPaidPath = paidPaths.some((path) =>
     request.nextUrl.pathname.startsWith(path)
   );
+  const isAccountPath = request.nextUrl.pathname.startsWith('/account');
 
-  if (user && isPaidPath) {
+  if (user && isPaidPath && !isAccountPath) {
     const { data: profile } = await supabase
       .from('profiles')
       .select('stripe_subscription_status')

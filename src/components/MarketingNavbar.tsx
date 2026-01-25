@@ -95,8 +95,8 @@ export default function MarketingNavbar({ onSignIn, onSignUp }: MarketingNavbarP
                      </span>
                    </summary>
                    <div className="absolute right-0 mt-2 w-48 bg-slate-900 border border-slate-800 rounded-lg shadow-lg py-2">
-                     <Link
-                       href="/studio/account"
+                      <Link
+                        href="/account"
                        className="block px-3 py-2 text-sm text-slate-300 hover:bg-slate-800/70"
                      >
                        Account

@@ -6,7 +6,6 @@ const STUDIO_TABS = [
   { href: '/upload', label: 'Single' },
   { href: '/batch', label: 'Batch' },
   { href: '/settings', label: 'Settings' },
-  { href: '/studio/account', label: 'Account' },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -46,9 +45,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           
           <div className="ml-auto flex items-center gap-3">
             <span className="text-[11px] text-slate-600">Pro</span>
-            <Link href="/studio/account" className="text-[11px] text-slate-500 hover:text-white transition-colors">
-              Account
-            </Link>
+            <details className="relative">
+              <summary className="list-none cursor-pointer text-[11px] text-slate-500 hover:text-white transition-colors">
+                Account
+              </summary>
+              <div className="absolute right-0 mt-2 w-36 rounded border border-slate-800 bg-slate-950 shadow-lg">
+                <Link
+                  href="/account"
+                  className="block px-3 py-2 text-[11px] text-slate-300 hover:text-white hover:bg-slate-800/60 transition-colors"
+                >
+                  Account settings
+                </Link>
+              </div>
+            </details>
           </div>
         </div>
       </header>
@@ -58,7 +67,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <Link href="/" className="text-base font-semibold text-white">
           VehicleStudio
         </Link>
-        <span className="text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded">Studio</span>
+        <div className="flex items-center gap-2">
+          <Link href="/account" className="text-[11px] text-slate-500 hover:text-white transition-colors">
+            Account
+          </Link>
+          <span className="text-[10px] text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded">Studio</span>
+        </div>
       </header>
 
       {/* Main Content */}

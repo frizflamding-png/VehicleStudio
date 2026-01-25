@@ -73,7 +73,7 @@ export default function StudioHomePage() {
             <p className="text-xs text-slate-400">Upload and process multiple photos.</p>
           </Link>
           <Link
-            href="/studio/account"
+            href="/account"
             className="block bg-slate-900/60 border border-slate-800 rounded-lg p-4 hover:border-slate-700 transition-colors"
           >
             <h2 className="text-sm font-semibold text-white mb-1">Account</h2>

@@ -31,7 +31,7 @@ export async function POST(request: Request) {
 
     const stripe = new Stripe(stripeSecretKey, { apiVersion: '2023-10-16' });
     const origin = request.headers.get('origin') || process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-    const returnUrl = new URL('/studio/account', origin).toString();
+    const returnUrl = new URL('/account', origin).toString();
 
     const session = await stripe.billingPortal.sessions.create({
       customer: profile.stripe_customer_id,
