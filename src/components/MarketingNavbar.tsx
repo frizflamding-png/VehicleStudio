@@ -1,6 +1,7 @@
 'use client';
  
- import Link from 'next/link';
+import Link from 'next/link';
+import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
  import { useRouter } from 'next/navigation';
  import { useEffect, useMemo, useState } from 'react';
  import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
@@ -26,13 +27,13 @@ export default function MarketingNavbar({ onSignIn, onSignUp }: MarketingNavbarP
      if (!supabase) return;
      let isMounted = true;
  
-     supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(({ data }: { data: { user: User | null } }) => {
        if (!isMounted) return;
        setUserEmail(data.user?.email ?? null);
        setUserId(data.user?.id ?? null);
      });
  
-     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
        if (!isMounted) return;
        setUserEmail(session?.user?.email ?? null);
        setUserId(session?.user?.id ?? null);

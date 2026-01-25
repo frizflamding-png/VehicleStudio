@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import type { FileObject } from '@supabase/storage-js';
 import Image from 'next/image';
 import JSZip from 'jszip';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
@@ -70,7 +71,7 @@ export default function BatchUploadPage() {
 
     if (backgroundFiles && backgroundFiles.length > 0) {
       const signedUrls = await Promise.all(
-        backgroundFiles.map(async (file) => {
+        backgroundFiles.map(async (file: FileObject) => {
           const path = `${user.id}/${file.name}`;
           const { data: signed } = await supabase.storage
             .from(USER_BACKGROUNDS_BUCKET)

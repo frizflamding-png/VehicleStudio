@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import MarketingNavbar from '@/components/MarketingNavbar';
 import MarketingHeroActions from '@/components/MarketingHeroActions';
 import MarketingPricingCard from '@/components/MarketingPricingCard';
@@ -12,7 +12,6 @@ export default function Home() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const openSignIn = () => {
     setAuthMode('signin');
@@ -26,19 +25,23 @@ export default function Home() {
 
   const closeAuth = () => {
     setIsAuthOpen(false);
-    if (searchParams.get('auth')) {
-      router.replace('/');
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('auth')) {
+        router.replace('/');
+      }
     }
   };
 
   useEffect(() => {
-    if (isAuthOpen) return;
-    const mode = searchParams.get('auth');
+    if (isAuthOpen || typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get('auth');
     if (mode === 'signin' || mode === 'signup') {
       setAuthMode(mode);
       setIsAuthOpen(true);
     }
-  }, [isAuthOpen, searchParams]);
+  }, [isAuthOpen]);
 
   return (
     <div className="min-h-screen bg-slate-950">

@@ -28,7 +28,7 @@ async function removeBackground(imageBuffer: Buffer): Promise<Buffer> {
   }
 
   const formData = new FormData();
-  formData.append('image_file', new Blob([imageBuffer]), 'image.jpg');
+  formData.append('image_file', new Blob([new Uint8Array(imageBuffer)]), 'image.jpg');
   formData.append('size', 'full'); // FULL resolution - no downscaling
   formData.append('add_shadow', 'true');
   formData.append('format', 'png'); // PNG for lossless alpha
@@ -414,14 +414,14 @@ export async function POST(request: NextRequest) {
 
     // Convert file to buffer
     const arrayBuffer = await imageFile.arrayBuffer();
-    let originalBuffer = Buffer.from(arrayBuffer);
+    let originalBuffer: Buffer = Buffer.from(arrayBuffer);
 
     // Convert AVIF/HEIC to JPEG for remove.bg compatibility
     const needsConversion = ['image/avif', 'image/heic', 'image/heif'].includes(imageFile.type);
     if (needsConversion) {
-      originalBuffer = await sharp(originalBuffer)
+      originalBuffer = (await sharp(originalBuffer)
         .jpeg({ quality: 95 })
-        .toBuffer();
+        .toBuffer()) as Buffer;
     }
 
     // Step 1: Upload original to Supabase Storage (use outputId to match output filename)

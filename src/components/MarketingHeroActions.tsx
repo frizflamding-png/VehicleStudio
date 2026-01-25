@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
 import { useEffect, useMemo, useState } from 'react';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 
@@ -26,12 +27,12 @@ export default function MarketingHeroActions({ variant, onSignIn, onSignUp }: Ma
     if (!supabase) return;
     let isMounted = true;
 
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(({ data }: { data: { user: User | null } }) => {
       if (!isMounted) return;
       setIsLoggedIn(Boolean(data.user?.id));
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
       if (!isMounted) return;
       setIsLoggedIn(Boolean(session?.user?.id));
     });

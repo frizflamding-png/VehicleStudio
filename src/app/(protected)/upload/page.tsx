@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import type { FileObject } from '@supabase/storage-js';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
@@ -56,7 +57,7 @@ export default function UploadPage() {
 
     if (backgroundFiles && backgroundFiles.length > 0) {
       const signedUrls = await Promise.all(
-        backgroundFiles.map(async (file) => {
+        backgroundFiles.map(async (file: FileObject) => {
           const path = `${user.id}/${file.name}`;
           const { data: signed } = await supabase.storage
             .from(USER_BACKGROUNDS_BUCKET)
