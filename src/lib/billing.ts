@@ -8,9 +8,8 @@ import { createAdminClient } from '@/lib/supabase/admin';
  * Statuses considered "paid" for subscription access
  * - 'active': Normal paid subscription
  * - 'trialing': In trial period
- * - 'past_due': Grace period (payment failed but still has access for a few days)
  */
-const PAID_STATUSES = new Set(['active', 'trialing', 'past_due']);
+const PAID_STATUSES = new Set(['active', 'trialing']);
 
 /**
  * Check if a subscription status grants paid access
@@ -19,6 +18,10 @@ const PAID_STATUSES = new Set(['active', 'trialing', 'past_due']);
 export function isPaidStatus(status: string | null | undefined): boolean {
   if (!status) return false;
   return PAID_STATUSES.has(status);
+}
+
+export function isPaidProfile(profile: { stripe_subscription_status?: string | null } | null | undefined): boolean {
+  return isPaidStatus(profile?.stripe_subscription_status ?? null);
 }
 
 /**
@@ -48,7 +51,7 @@ export async function isPaidUser(userId: string): Promise<{ isPaid: boolean; sta
   }
 
   const status = profile.stripe_subscription_status;
-  const isPaid = isPaidStatus(status);
+  const isPaid = isPaidProfile(profile);
 
   console.log('[PAYWALL] User check:', {
     userId,

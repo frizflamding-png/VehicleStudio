@@ -63,7 +63,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [dropdownOpen, handleClickOutside, handleKeyDown]);
 
-  const isPro = subscriptionStatus === 'active' || subscriptionStatus === 'trialing' || subscriptionStatus === 'past_due';
+  const isPro = subscriptionStatus === 'active' || subscriptionStatus === 'trialing';
   const isDev = process.env.NODE_ENV === 'development';
   
   // Debug badge color based on status
@@ -71,7 +71,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     if (!status) return 'bg-slate-600';
     if (status === 'active') return 'bg-emerald-600';
     if (status === 'trialing') return 'bg-blue-600';
-    if (status === 'past_due') return 'bg-yellow-600';
     return 'bg-red-600';
   };
 
@@ -108,9 +107,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           
           <div className="ml-auto flex items-center gap-3">
             {/* Debug badge - shows subscription status in dev mode */}
-            {isDev && (
+            {isDev && inStudio && (
               <span className={`text-[10px] px-1.5 py-0.5 rounded ${getStatusColor(subscriptionStatus)} text-white font-mono`}>
-                {subscriptionStatus || 'no-sub'}
+                Status: {subscriptionStatus || 'unpaid'}
               </span>
             )}
             {isPro && !isDev && <span className="text-[11px] text-slate-600">Pro</span>}

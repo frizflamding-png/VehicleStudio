@@ -1,6 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { isPaidStatus } from '@/lib/billing';
+import { isPaidProfile } from '@/lib/billing';
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -64,17 +64,16 @@ export async function proxy(request: NextRequest) {
   const isPaidPath = paidPaths.some((path) => pathname.startsWith(path));
 
   // Routes that are auth pages (login/signup)
-  const authPaths = ['/login'];
+  const authPaths = ['/login', '/signin'];
   const isAuthPath = authPaths.some((path) => pathname.startsWith(path));
 
   // ============================================
   // 1. NOT LOGGED IN + PROTECTED ROUTE → /login
   // ============================================
   if (!user && isAuthRequired) {
-    console.log('[PAYWALL] No user, redirecting to login. Path:', pathname);
+    console.log('[PAYWALL] No user, redirecting to signin. Path:', pathname);
     const url = request.nextUrl.clone();
-    url.pathname = '/login';
-    url.searchParams.set('next', pathname);
+    url.pathname = '/signin';
     return NextResponse.redirect(url);
   }
 
@@ -100,7 +99,7 @@ export async function proxy(request: NextRequest) {
       .maybeSingle<{ stripe_subscription_status: string | null; stripe_customer_id: string | null }>();
 
     const status = profile?.stripe_subscription_status ?? null;
-    const isPaid = isPaidStatus(status);
+    const isPaid = isPaidProfile(profile);
 
     // Debug logging (visible in Vercel logs)
     console.log('[PAYWALL] Subscription check:', {
@@ -113,9 +112,9 @@ export async function proxy(request: NextRequest) {
     });
 
     if (!isPaid) {
-      console.log('[PAYWALL] User not paid, redirecting to upgrade. User:', user.id, 'Status:', status);
+      console.log('[PAYWALL] User not paid, redirecting to pricing. User:', user.id, 'Status:', status);
       const url = request.nextUrl.clone();
-      url.pathname = '/upgrade';
+      url.pathname = '/pricing';
       url.searchParams.set('reason', 'paywall');
       return NextResponse.redirect(url);
     }

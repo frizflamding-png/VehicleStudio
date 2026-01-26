@@ -58,7 +58,7 @@ export default function UpgradePage() {
         .maybeSingle<{ stripe_subscription_status: string | null; stripe_customer_id: string | null }>();
 
       const status = profile?.stripe_subscription_status ?? '';
-      const isPaid = status === 'active' || status === 'trialing' || status === 'past_due';
+      const isPaid = status === 'active' || status === 'trialing';
       setHasCustomerId(Boolean(profile?.stripe_customer_id));
 
       if (isPaid) {

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import MarketingNavbar from '@/components/MarketingNavbar';
 import MarketingHeroActions from '@/components/MarketingHeroActions';
 import MarketingPricingCard from '@/components/MarketingPricingCard';
+import BeforeAfterSlider from '@/components/BeforeAfterSlider';
 import AuthModal from '@/components/AuthModal';
 
 export default function Home() {
@@ -92,6 +93,24 @@ export default function Home() {
             >
               Sign in
             </button>
+          </div>
+        </section>
+
+        {/* ===== BEFORE / AFTER SLIDER ===== */}
+        <section className="py-12 px-6">
+          <div className="max-w-5xl mx-auto text-center">
+            <h2 className="text-2xl font-semibold text-white mb-3">See the difference</h2>
+            <p className="text-sm text-slate-400 max-w-2xl mx-auto mb-8">
+              Upload a vehicle photo, choose a studio background, and generate a listing-ready image in seconds.
+            </p>
+            <div className="max-w-3xl mx-auto">
+              <BeforeAfterSlider
+                beforeSrc="/demo/before.jpg"
+                afterSrc="/demo/after.jpg"
+                beforeAlt="Original vehicle photo"
+                afterAlt="Vehicle photo with studio background"
+              />
+            </div>
           </div>
         </section>
 
