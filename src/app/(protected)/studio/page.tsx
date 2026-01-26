@@ -2,17 +2,45 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 
 export default function StudioHomePage() {
   const [checking, setChecking] = useState(true);
+  const [syncingAfterCheckout, setSyncingAfterCheckout] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const supabase = useMemo(() => {
     if (!isSupabaseConfigured()) return null;
     return createClient();
   }, []);
+
+  // Handle checkout success - trigger sync in case webhook is delayed
+  useEffect(() => {
+    const checkout = searchParams.get('checkout');
+    if (checkout === 'success') {
+      console.log('[STUDIO] Checkout success detected, triggering sync...');
+      setSyncingAfterCheckout(true);
+      
+      // Clear the URL param
+      const url = new URL(window.location.href);
+      url.searchParams.delete('checkout');
+      window.history.replaceState({}, '', url.toString());
+
+      // Trigger sync to ensure subscription is active
+      fetch('/api/stripe/sync', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+          console.log('[STUDIO] Sync result:', data);
+          setSyncingAfterCheckout(false);
+        })
+        .catch(err => {
+          console.error('[STUDIO] Sync error:', err);
+          setSyncingAfterCheckout(false);
+        });
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (!supabase) {
@@ -41,10 +69,14 @@ export default function StudioHomePage() {
     checkProfile().catch(() => setChecking(false));
   }, [router, supabase]);
 
-  if (checking) {
+  if (checking || syncingAfterCheckout) {
     return (
       <div className="min-h-[calc(100vh-8rem)] lg:min-h-[calc(100vh-6.25rem)] flex items-center justify-center">
-        <span className="text-sm text-slate-500">Loading studio...</span>
+        <div className="text-center">
+          <span className="text-sm text-slate-500">
+            {syncingAfterCheckout ? 'Activating your subscription...' : 'Loading studio...'}
+          </span>
+        </div>
       </div>
     );
   }

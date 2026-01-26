@@ -95,8 +95,8 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
           </div>
           <h2 className="text-xl font-semibold mb-2">Unable to Load</h2>
           <p className="text-slate-400 text-sm mb-6">{error || 'Result not found'}</p>
-          <Link href="/upload" className="btn-primary">
-            Back to Upload
+          <Link href="/studio" className="btn-primary">
+            Back to Studio
           </Link>
         </div>
       </main>
@@ -108,7 +108,7 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
       <div className="max-w-lg mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <Link href="/upload" className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
+          <Link href="/studio" className="inline-flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
@@ -185,7 +185,7 @@ export default function ResultsPage({ params }: { params: Promise<{ id: string }
             )}
           </button>
 
-          <Link href="/upload" className="btn-secondary block text-center">
+          <Link href="/studio" className="btn-secondary block text-center">
             <span className="inline-flex items-center gap-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />

@@ -2,9 +2,9 @@
  
 import Link from 'next/link';
 import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js';
- import { useRouter } from 'next/navigation';
- import { useEffect, useMemo, useState } from 'react';
- import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
+import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
  
 const OPEN_STUDIO_PATH = '/studio';
 
@@ -14,9 +14,36 @@ type MarketingNavbarProps = {
 };
 
 export default function MarketingNavbar({ onSignIn, onSignUp }: MarketingNavbarProps) {
-   const [userEmail, setUserEmail] = useState<string | null>(null);
-   const [userId, setUserId] = useState<string | null>(null);
-   const router = useRouter();
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+
+  // Close dropdown on outside click
+  const handleClickOutside = useCallback((event: MouseEvent) => {
+    if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      setDropdownOpen(false);
+    }
+  }, []);
+
+  // Close dropdown on Escape key
+  const handleKeyDown = useCallback((event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      setDropdownOpen(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (dropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [dropdownOpen, handleClickOutside, handleKeyDown]);
  
    const supabase = useMemo(() => {
      if (!isSupabaseConfigured()) return null;
@@ -88,34 +115,47 @@ export default function MarketingNavbar({ onSignIn, onSignUp }: MarketingNavbarP
                    Open Studio
                  </Link>
  
-                 <details className="relative">
-                   <summary className="list-none cursor-pointer text-sm text-slate-300 hover:text-white transition-colors px-3 py-1.5 border border-slate-700/70 rounded-lg">
-                     <span className="inline-block max-w-[180px] truncate align-bottom">
-                       {accountLabel}
-                     </span>
-                   </summary>
-                   <div className="absolute right-0 mt-2 w-48 bg-slate-900 border border-slate-800 rounded-lg shadow-lg py-2">
+                 <div className="relative" ref={dropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => setDropdownOpen(!dropdownOpen)}
+                    aria-expanded={dropdownOpen}
+                    aria-haspopup="true"
+                    className="text-sm text-slate-300 hover:text-white transition-colors px-3 py-1.5 border border-slate-700/70 rounded-lg"
+                  >
+                    <span className="inline-block max-w-[180px] truncate align-bottom">
+                      {accountLabel}
+                    </span>
+                  </button>
+                  {dropdownOpen && (
+                    <div className="absolute right-0 mt-2 w-48 bg-slate-900 border border-slate-800 rounded-lg shadow-lg py-2" role="menu">
                       <Link
                         href="/account"
-                       className="block px-3 py-2 text-sm text-slate-300 hover:bg-slate-800/70"
-                     >
-                       Account
-                     </Link>
-                     <Link
-                       href="/studio"
-                       className="block px-3 py-2 text-sm text-slate-300 hover:bg-slate-800/70"
-                     >
-                       Studio
-                     </Link>
-                     <button
-                       type="button"
-                       onClick={handleSignOut}
-                       className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-red-500/10"
-                     >
-                       Sign out
-                     </button>
-                   </div>
-                 </details>
+                        className="block px-3 py-2 text-sm text-slate-300 hover:bg-slate-800/70"
+                        role="menuitem"
+                        onClick={() => setDropdownOpen(false)}
+                      >
+                        Account
+                      </Link>
+                      <Link
+                        href="/studio"
+                        className="block px-3 py-2 text-sm text-slate-300 hover:bg-slate-800/70"
+                        role="menuitem"
+                        onClick={() => setDropdownOpen(false)}
+                      >
+                        Studio
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => { handleSignOut(); setDropdownOpen(false); }}
+                        className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-red-500/10"
+                        role="menuitem"
+                      >
+                        Sign out
+                      </button>
+                    </div>
+                  )}
+                </div>
                </>
             ) : (
                <>

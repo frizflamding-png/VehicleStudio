@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import type { FileObject } from '@supabase/storage-js';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import Link from 'next/link';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 
 const BACKGROUNDS = [
@@ -11,6 +12,24 @@ const BACKGROUNDS = [
 ];
 const USER_BACKGROUND_PREFIX = 'user:';
 const USER_BACKGROUNDS_BUCKET = 'user-backgrounds';
+
+// Safe localStorage wrapper for private browsing mode
+const safeLocalStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // Ignore errors (e.g., private browsing mode)
+    }
+  },
+};
 
 type UserBackground = {
   id: string;
@@ -48,7 +67,7 @@ export default function UploadPage() {
 
     if (profile?.background_id) {
       setBackground(profile.background_id);
-      localStorage.setItem('background', profile.background_id);
+      safeLocalStorage.setItem('background', profile.background_id);
     }
 
     const { data: backgroundFiles } = await supabase.storage
@@ -77,7 +96,7 @@ export default function UploadPage() {
     }
   }, [supabase]);
   useEffect(() => {
-    const saved = localStorage.getItem('background');
+    const saved = safeLocalStorage.getItem('background');
     if (saved) setBackground(saved);
     if (supabase) {
       loadUserBackgrounds();
@@ -133,7 +152,7 @@ export default function UploadPage() {
         throw new Error(data.error || 'Processing failed');
       }
 
-      localStorage.setItem('background', background);
+      safeLocalStorage.setItem('background', background);
       router.push(`/results/${data.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
@@ -163,7 +182,7 @@ export default function UploadPage() {
               <p className="text-xs text-slate-500 leading-tight">Upload · Select template · Process</p>
             </div>
             <p className="text-xs text-slate-500">
-              Need bulk? <a href="/batch" className="text-cyan-500 hover:text-cyan-400">Batch Processing →</a>
+              Need bulk? <Link href="/batch" className="text-cyan-500 hover:text-cyan-400">Batch Processing →</Link>
             </p>
           </div>
 
@@ -256,7 +275,7 @@ export default function UploadPage() {
                         {BACKGROUNDS.map((bg) => (
                           <button
                             key={bg.id}
-                            onClick={() => { setBackground(bg.id); localStorage.setItem('background', bg.id); }}
+                            onClick={() => { setBackground(bg.id); safeLocalStorage.setItem('background', bg.id); }}
                             className={`relative aspect-video rounded overflow-hidden border transition-all ${
                               background === bg.id ? 'border-cyan-500' : 'border-slate-700 hover:border-slate-600'
                             }`}
@@ -273,7 +292,7 @@ export default function UploadPage() {
                           {userBackgrounds.map((bg) => (
                             <button
                               key={bg.id}
-                              onClick={() => { setBackground(bg.id); localStorage.setItem('background', bg.id); }}
+                              onClick={() => { setBackground(bg.id); safeLocalStorage.setItem('background', bg.id); }}
                               className={`relative aspect-video rounded overflow-hidden border transition-all ${
                                 background === bg.id ? 'border-cyan-500' : 'border-slate-700 hover:border-slate-600'
                               }`}

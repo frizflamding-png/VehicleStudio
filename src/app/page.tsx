@@ -361,9 +361,7 @@ export default function Home() {
                 VehicleStudio — Vehicle photo processing for automotive dealerships
               </span>
               <div className="flex items-center gap-6 text-sm text-slate-500">
-                <a href="#" className="hover:text-slate-300 transition-colors">Terms</a>
-                <a href="#" className="hover:text-slate-300 transition-colors">Privacy</a>
-                <a href="#" className="hover:text-slate-300 transition-colors">Contact</a>
+                <a href="mailto:support@vehiclestudio.app" className="hover:text-slate-300 transition-colors">Contact</a>
               </div>
             </div>
             {/* Mobile Footer */}

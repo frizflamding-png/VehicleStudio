@@ -50,7 +50,7 @@ export default function LoginPage() {
       setError(error.message);
       setLoading(false);
     } else {
-      router.push('/upload');
+      router.push('/studio');
       router.refresh();
     }
   };

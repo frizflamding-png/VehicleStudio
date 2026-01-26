@@ -16,6 +16,24 @@ const BACKGROUNDS = [
 const USER_BACKGROUND_PREFIX = 'user:';
 const USER_BACKGROUNDS_BUCKET = 'user-backgrounds';
 
+// Safe localStorage wrapper for private browsing mode
+const safeLocalStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // Ignore errors (e.g., private browsing mode)
+    }
+  },
+};
+
 type UserBackground = {
   id: string;
   label: string;
@@ -62,7 +80,7 @@ export default function BatchUploadPage() {
 
     if (profile?.background_id) {
       setBackground(profile.background_id);
-      localStorage.setItem('background', profile.background_id);
+      safeLocalStorage.setItem('background', profile.background_id);
     }
 
     const { data: backgroundFiles } = await supabase.storage
@@ -91,7 +109,7 @@ export default function BatchUploadPage() {
     }
   }, [supabase]);
   useEffect(() => {
-    const saved = localStorage.getItem('background');
+    const saved = safeLocalStorage.getItem('background');
     if (saved) setBackground(saved);
     if (supabase) {
       loadUserBackgrounds();
@@ -533,7 +551,7 @@ export default function BatchUploadPage() {
                     {BACKGROUNDS.map((bg) => (
                       <button
                         key={bg.id}
-                        onClick={() => { setBackground(bg.id); localStorage.setItem('background', bg.id); }}
+                        onClick={() => { setBackground(bg.id); safeLocalStorage.setItem('background', bg.id); }}
                         disabled={isProcessing}
                         className={`w-full aspect-video rounded overflow-hidden border transition-all relative ${
                           background === bg.id ? 'border-cyan-500' : 'border-slate-700 hover:border-slate-600'
@@ -550,7 +568,7 @@ export default function BatchUploadPage() {
                         {userBackgrounds.map((bg) => (
                           <button
                             key={bg.id}
-                            onClick={() => { setBackground(bg.id); localStorage.setItem('background', bg.id); }}
+                            onClick={() => { setBackground(bg.id); safeLocalStorage.setItem('background', bg.id); }}
                             disabled={isProcessing}
                             className={`relative aspect-video rounded overflow-hidden border transition-all ${
                               background === bg.id ? 'border-cyan-500' : 'border-slate-700 hover:border-slate-600'

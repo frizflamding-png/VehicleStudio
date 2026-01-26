@@ -12,6 +12,24 @@ const BACKGROUNDS = [
 const USER_BACKGROUND_PREFIX = 'user:';
 const USER_BACKGROUNDS_BUCKET = 'user-backgrounds';
 
+// Safe localStorage wrapper for private browsing mode
+const safeLocalStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // Ignore errors (e.g., private browsing mode)
+    }
+  },
+};
+
 type UserBackground = {
   id: string;
   label: string;
@@ -53,7 +71,7 @@ export default function SettingsPage() {
 
     if (profile?.background_id) {
       setBackground(profile.background_id);
-      localStorage.setItem('background', profile.background_id);
+      safeLocalStorage.setItem('background', profile.background_id);
     }
 
     const { data: logoData } = await supabase.storage
@@ -91,7 +109,7 @@ export default function SettingsPage() {
   }, [supabase]);
 
   useEffect(() => {
-    const saved = localStorage.getItem('background');
+    const saved = safeLocalStorage.getItem('background');
     if (saved) setBackground(saved);
     
     if (supabase) {
@@ -124,7 +142,7 @@ export default function SettingsPage() {
                     {BACKGROUNDS.map((bg) => (
                       <button
                         key={bg.id}
-                        onClick={() => { setBackground(bg.id); localStorage.setItem('background', bg.id); }}
+                        onClick={() => { setBackground(bg.id); safeLocalStorage.setItem('background', bg.id); }}
                         className={`relative aspect-video rounded overflow-hidden border transition-all ${
                           background === bg.id ? 'border-cyan-500' : 'border-slate-700'
                         }`}
@@ -250,7 +268,7 @@ export default function SettingsPage() {
   const handleSaveSettings = async () => {
     setSaving(true);
     setMessage(null);
-    localStorage.setItem('background', background);
+    safeLocalStorage.setItem('background', background);
 
     try {
       if (supabase) {
