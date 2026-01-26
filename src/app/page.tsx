@@ -105,10 +105,10 @@ export default function Home() {
             </p>
             <div className="max-w-3xl mx-auto">
               <BeforeAfterSlider
-                beforeSrc="/demo/before.jpg"
-                afterSrc="/demo/after.jpg"
-                beforeAlt="Original vehicle photo"
-                afterAlt="Vehicle photo with studio background"
+                beforeSrc="/templates/studio-gray.jpg"
+                afterSrc="/templates/studio-white.jpg"
+                beforeAlt="Vehicle photo before studio background"
+                afterAlt="Vehicle photo after studio background"
               />
             </div>
           </div>

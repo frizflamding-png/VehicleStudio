@@ -1,7 +1,7 @@
 import Stripe from 'stripe';
 import { redirect } from 'next/navigation';
 import AppShell from '@/components/AppShell';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { isPaidProfile } from '@/lib/billing';
 
@@ -10,6 +10,10 @@ export default async function ProtectedLayout({
 }: {
   children: React.ReactNode;
 }) {
+  if (!isSupabaseConfigured()) {
+    return <AppShell>{children}</AppShell>;
+  }
+
   const supabase = await createClient();
   const {
     data: { user },
