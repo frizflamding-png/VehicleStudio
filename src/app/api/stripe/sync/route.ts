@@ -19,6 +19,18 @@ export async function POST() {
       return NextResponse.json({ error: 'Stripe not configured' }, { status: 500 });
     }
 
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !serviceRoleKey) {
+      return NextResponse.json(
+        {
+          error: 'Supabase admin key missing',
+          debug: 'SUPABASE_SERVICE_ROLE_KEY is required for subscription sync',
+        },
+        { status: 500 }
+      );
+    }
+
     // Get current user
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();

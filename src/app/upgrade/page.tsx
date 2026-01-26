@@ -78,19 +78,26 @@ export default function UpgradePage() {
     try {
       const response = await fetch('/api/stripe/sync', { method: 'POST' });
       const data = await response.json();
-      
       if (data.isPaid) {
         setSyncResult('✓ Subscription verified! Redirecting...');
-        setTimeout(() => router.replace('/studio'), 1500);
-      } else {
-        setSyncResult(`Status: ${data.status || 'none'} - ${data.debug || 'Not subscribed'}`);
+        window.location.assign('/studio');
+        return;
       }
+      setSyncResult(`Status: ${data.status || 'none'} - ${data.debug || 'Not subscribed'}`);
     } catch {
       setSyncResult('Sync failed. Please try again.');
     } finally {
       setSyncing(false);
     }
   };
+
+  // Auto-sync once on paywall if customer exists
+  useEffect(() => {
+    if (reason !== 'paywall') return;
+    if (!hasCustomerId) return;
+    if (syncing || syncResult) return;
+    handleSync();
+  }, [reason, hasCustomerId, syncing, syncResult]);
 
   return (
     <div className="min-h-screen bg-slate-950 px-6 py-12">

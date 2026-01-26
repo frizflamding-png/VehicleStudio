@@ -24,8 +24,7 @@ export default async function ProtectedLayout({
     redirect('/signin');
   }
 
-  const admin = createAdminClient();
-  let { data: profile, error } = await admin
+  const { data: profile, error } = await supabase
     .from('profiles')
     .select('stripe_subscription_status, stripe_customer_id, stripe_subscription_id')
     .eq('id', user.id)
@@ -42,12 +41,14 @@ export default async function ProtectedLayout({
   let isPaid = isPaidProfile(profile);
 
   // Temporary sync: if status missing or unpaid, fetch from Stripe once
-  if (!isPaid && profile?.stripe_customer_id) {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!isPaid && profile?.stripe_customer_id && serviceRoleKey) {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeSecretKey) {
       console.log('[PAYWALL] Stripe secret missing - cannot sync');
     } else {
       try {
+        const admin = createAdminClient();
         const stripe = new Stripe(stripeSecretKey, { apiVersion: '2023-10-16' });
         const subscriptions = await stripe.subscriptions.list({
           customer: profile.stripe_customer_id,
@@ -67,17 +68,18 @@ export default async function ProtectedLayout({
               plan: priceId,
             })
             .eq('id', user.id);
-
-          profile = {
+          const updatedProfile = {
             ...profile,
             stripe_subscription_status: latest.status,
           };
-          isPaid = isPaidProfile(profile);
+          isPaid = isPaidProfile(updatedProfile);
         }
       } catch (syncError) {
         console.log('[PAYWALL] Stripe sync failed:', syncError);
       }
     }
+  } else if (!serviceRoleKey) {
+    console.log('[PAYWALL] SUPABASE_SERVICE_ROLE_KEY missing - skipping Stripe sync');
   }
 
   console.log('[PAYWALL] Access decision:', {
