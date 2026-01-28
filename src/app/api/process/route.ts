@@ -12,7 +12,10 @@ const EXPORT_HEIGHT = 1080;
 const EXPORT_QUALITY = 92;
 
 const LOGO_WIDTH_PERCENT = 0.10;
-const CAR_WIDTH_PERCENT = 0.82; // Car occupies 82% of canvas width
+const TARGET_WIDTH_PCT = 0.68;
+const MIN_WIDTH_PCT = 0.58;
+const MAX_WIDTH_PCT = 0.78;
+const FLOOR_Y_PCT = 0.84;
 
 // Background templates (complete room images)
 const BACKGROUND_TEMPLATES = ['showroom-grey'];
@@ -51,22 +54,46 @@ async function removeBackground(imageBuffer: Buffer): Promise<Buffer> {
 }
 
 // Analyze car bounding box for simple centering
-interface CarAnalysis {
-  // Bounding box of solid car pixels (alpha > 200)
+type PhotoMode = 'exterior' | 'interior';
+
+interface Bounds {
   minX: number;
   maxX: number;
   minY: number;
   maxY: number;
-  // Buffer dimensions
-  bufferWidth: number;
-  bufferHeight: number;
+  valid: boolean;
 }
 
-async function analyzeCarPosition(imageBuffer: Buffer): Promise<CarAnalysis> {
+interface SubjectAnalysis {
+  bufferWidth: number;
+  bufferHeight: number;
+  hasAlpha: boolean;
+  soft: Bounds;
+  solid: Bounds;
+  softCoverage: number;
+  solidCoverage: number;
+  softWidthPct: number;
+  softHeightPct: number;
+  bottomTouchRatio: number;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(value, max));
+}
+
+function finalizeBounds(bounds: Bounds, width: number, height: number) {
+  if (!bounds.valid) {
+    return { minX: 0, maxX: width - 1, minY: 0, maxY: height - 1, valid: false };
+  }
+  return bounds;
+}
+
+async function analyzeSubjectBounds(imageBuffer: Buffer): Promise<SubjectAnalysis> {
   const meta = await sharp(imageBuffer).metadata();
   const bufferWidth = meta.width || 2000;
   const bufferHeight = meta.height || 1500;
-  
+  const hasAlpha = Boolean(meta.hasAlpha);
+
   try {
     const { data, info } = await sharp(imageBuffer)
       .ensureAlpha()
@@ -74,36 +101,91 @@ async function analyzeCarPosition(imageBuffer: Buffer): Promise<CarAnalysis> {
       .toBuffer({ resolveWithObject: true });
 
     const { width, height, channels } = info;
-    
-    // Find bounding box of solid pixels (alpha > 200)
-    let minX = width;
-    let maxX = 0;
-    let minY = height;
-    let maxY = 0;
-    
+    const totalPixels = width * height;
+    let soft: Bounds = { minX: width, maxX: 0, minY: height, maxY: 0, valid: false };
+    let solid: Bounds = { minX: width, maxX: 0, minY: height, maxY: 0, valid: false };
+    let softPixels = 0;
+    let solidPixels = 0;
+
+    const bottomBandStart = Math.max(0, height - Math.round(height * 0.02));
+    const bottomSoftColumns = new Uint8Array(width);
+
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const idx = (y * width + x) * channels;
-        if (data[idx + 3] > 200) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
+        const alpha = data[idx + 3];
+        if (alpha > 20) {
+          softPixels++;
+          soft.valid = true;
+          if (x < soft.minX) soft.minX = x;
+          if (x > soft.maxX) soft.maxX = x;
+          if (y < soft.minY) soft.minY = y;
+          if (y > soft.maxY) soft.maxY = y;
+          if (y >= bottomBandStart) bottomSoftColumns[x] = 1;
+        }
+        if (alpha > 200) {
+          solidPixels++;
+          solid.valid = true;
+          if (x < solid.minX) solid.minX = x;
+          if (x > solid.maxX) solid.maxX = x;
+          if (y < solid.minY) solid.minY = y;
+          if (y > solid.maxY) solid.maxY = y;
         }
       }
     }
-    
-    return { minX, maxX, minY, maxY, bufferWidth: width, bufferHeight: height };
+
+    soft = finalizeBounds(soft, width, height);
+    solid = finalizeBounds(solid, width, height);
+
+    const softWidth = soft.maxX - soft.minX + 1;
+    const softHeight = soft.maxY - soft.minY + 1;
+    const softCoverage = softPixels / totalPixels;
+    const solidCoverage = solidPixels / totalPixels;
+    const softWidthPct = softWidth / width;
+    const softHeightPct = softHeight / height;
+    const bottomTouchCount = bottomSoftColumns.reduce((sum, value) => sum + value, 0);
+    const bottomTouchRatio = width > 0 ? bottomTouchCount / width : 0;
+
+    return {
+      bufferWidth: width,
+      bufferHeight: height,
+      hasAlpha,
+      soft,
+      solid,
+      softCoverage,
+      solidCoverage,
+      softWidthPct,
+      softHeightPct,
+      bottomTouchRatio,
+    };
   } catch {
-    return { 
-      minX: 0, 
-      maxX: bufferWidth, 
-      minY: 0, 
-      maxY: bufferHeight,
-      bufferWidth, 
-      bufferHeight 
+    return {
+      bufferWidth,
+      bufferHeight,
+      hasAlpha,
+      soft: { minX: 0, maxX: bufferWidth - 1, minY: 0, maxY: bufferHeight - 1, valid: false },
+      solid: { minX: 0, maxX: bufferWidth - 1, minY: 0, maxY: bufferHeight - 1, valid: false },
+      softCoverage: 1,
+      solidCoverage: 1,
+      softWidthPct: 1,
+      softHeightPct: 1,
+      bottomTouchRatio: 1,
     };
   }
+}
+
+function classifyPhotoMode(analysis: SubjectAnalysis): PhotoMode {
+  const nearFullFrame = analysis.softWidthPct > 0.95 && analysis.softHeightPct > 0.95;
+  const largeCoverage = analysis.softCoverage > 0.9 || analysis.solidCoverage > 0.85;
+  const tallSubject = analysis.softHeightPct > 0.75;
+  const wideSubject = analysis.softWidthPct > 0.9;
+  const heavyBottomTouch = analysis.bottomTouchRatio > 0.6;
+
+  if (!analysis.hasAlpha) return 'interior';
+  if (!analysis.soft.valid || !analysis.solid.valid) return 'interior';
+  if (nearFullFrame && largeCoverage) return 'interior';
+  if (tallSubject || wideSubject || heavyBottomTouch) return 'interior';
+  return 'exterior';
 }
 
 // Load background template image
@@ -146,9 +228,9 @@ async function createRoomBackground(
   return sharp(Buffer.from(fallbackSvg)).toBuffer();
 }
 
-// ===== DEBUG MODE - SET TO FALSE FOR PRODUCTION =====
-const DEBUG_MODE = false;
-// ====================================================
+// Debug overlays (dev-only)
+const DEBUG_OVERLAY = process.env.NODE_ENV !== 'production' && process.env.PROCESS_DEBUG_OVERLAY === '1';
+const DEBUG_MODE = process.env.NODE_ENV !== 'production' && process.env.PROCESS_DEBUG === '1';
 
 // Pad the cutout buffer to preserve shadows at edges (especially bottom)
 async function padCutoutForShadows(cutoutBuffer: Buffer): Promise<{ paddedBuffer: Buffer; padding: { top: number; bottom: number; left: number; right: number } }> {
@@ -193,101 +275,206 @@ async function compositeImage(
   backgroundTemplate: string,
   logoBuffer: Buffer | null,
   backgroundBuffer: Buffer | null
-): Promise<Buffer> {
+): Promise<{ buffer: Buffer; mode: PhotoMode }> {
+  const analysis = await analyzeSubjectBounds(cutoutBuffer);
+  const mode = classifyPhotoMode(analysis);
+
   // Step 1: Pad the cutout to ensure shadows aren't clipped
   const { paddedBuffer, padding } = await padCutoutForShadows(cutoutBuffer);
-  
-  // Get car bounding box within the PADDED buffer
-  const { minX, maxX, minY, maxY, bufferWidth, bufferHeight } = await analyzeCarPosition(paddedBuffer);
-  
-  // Car bounding box measurements (adjusted for padding)
-  const carWidth = maxX - minX;
-  const carCenterX = minX + carWidth / 2;  // Horizontal center of car in buffer
-  const carBottom = maxY;                   // Bottom of car (tires) in buffer
-  
-  // Canvas MUST be exactly 16:9 to match export dimensions (no stretching)
-  // Calculate canvas size based on car width, but ensure 16:9 aspect
-  const canvasWidth = Math.round(bufferWidth / CAR_WIDTH_PERCENT);
-  const canvasHeight = Math.round(canvasWidth * (9 / 16)); // EXACT 16:9 aspect
-  
-  // Shadow area below the solid car pixels (contains ground shadow from remove.bg)
-  const shadowAreaBelow = bufferHeight - maxY;
-  
-  // Where tires should sit on canvas (82% down)
-  const targetFloorPercent = 0.82;
-  
-  // Calculate required canvas height:
-  // - Car bottom (tires) at 82% of canvas
-  // - Need room below for shadow: floorY + shadowAreaBelow
-  // - Need room above for car top: carBottom pixels above floorY
-  const minHeightForShadow = Math.round((carBottom / targetFloorPercent) + shadowAreaBelow + 50);
-  
-  let finalCanvasWidth = canvasWidth;
-  let finalCanvasHeight = Math.max(canvasHeight, minHeightForShadow);
-  
-  // Maintain 16:9 aspect ratio
-  if (finalCanvasHeight > canvasHeight) {
-    finalCanvasWidth = Math.round(finalCanvasHeight * (16 / 9));
-  }
-  
-  // Final floor position
-  const floorY = Math.round(finalCanvasHeight * targetFloorPercent);
-  
-  // HORIZONTAL: Center the car's bounding box center on the canvas center
-  const canvasCenterX = finalCanvasWidth / 2;
-  const carLeft = Math.round(canvasCenterX - carCenterX);
-  
-  // VERTICAL: Position so car bottom (tires) sits at floorY
-  // Shadow extends below this point and will be fully visible
-  const carTop = floorY - carBottom;
-  
-  // Clamp positions to valid ranges (must be >= 0 for sharp.composite)
-  let clampedCarLeft = Math.max(0, Math.min(carLeft, finalCanvasWidth - bufferWidth));
-  let clampedCarTop = Math.max(0, carTop); // Ensure non-negative
-  
-  // If carTop was clamped to 0, we need a taller canvas to fit everything
-  if (carTop < 0) {
-    // Recalculate with more height
-    const extraHeightNeeded = Math.abs(carTop) + 50;
-    finalCanvasHeight += extraHeightNeeded;
-    finalCanvasWidth = Math.round(finalCanvasHeight * (16 / 9));
-    // Recalculate floor position
-    const newFloorY = Math.round(finalCanvasHeight * targetFloorPercent);
-    clampedCarTop = newFloorY - carBottom;
-    clampedCarTop = Math.max(0, clampedCarTop);
-  }
-  
-  // ===== DEBUG MODE =====
-  if (DEBUG_MODE) {
-    console.log('======= DEBUG MODE ENABLED =======');
-    console.log('Padding: top=%d bottom=%d left=%d right=%d', padding.top, padding.bottom, padding.left, padding.right);
-    console.log('Padded buffer: %d x %d', bufferWidth, bufferHeight);
-    console.log('Bounding box: minX=%d maxX=%d minY=%d maxY=%d', minX, maxX, minY, maxY);
-    console.log('Shadow area below car: %d px', shadowAreaBelow);
-    console.log('Car center in buffer: %d, Car bottom: %d', carCenterX, carBottom);
-    console.log('Canvas: %d x %d (16:9), floorY: %d', finalCanvasWidth, finalCanvasHeight, floorY);
-    console.log('Computed: carLeft=%d carTop=%d', carLeft, carTop);
-    console.log('Clamped: left=%d top=%d', clampedCarLeft, clampedCarTop);
-  }
-  // ======================
-  
-  // Create background at canvas size (always 16:9)
-  const background = await createRoomBackground(backgroundTemplate, backgroundBuffer, finalCanvasWidth, finalCanvasHeight);
+  const paddedMeta = await sharp(paddedBuffer).metadata();
+  const paddedWidth = paddedMeta.width || analysis.bufferWidth;
+  const paddedHeight = paddedMeta.height || analysis.bufferHeight;
 
-  // Build composites array (use padded buffer to preserve shadows)
+  const soft = {
+    minX: analysis.soft.minX + padding.left,
+    maxX: analysis.soft.maxX + padding.left,
+    minY: analysis.soft.minY + padding.top,
+    maxY: analysis.soft.maxY + padding.top,
+  };
+  const solid = {
+    minX: analysis.solid.minX + padding.left,
+    maxX: analysis.solid.maxX + padding.left,
+    minY: analysis.solid.minY + padding.top,
+    maxY: analysis.solid.maxY + padding.top,
+  };
+
+  const solidWidth = Math.max(1, solid.maxX - solid.minX + 1);
+  const solidHeight = Math.max(1, solid.maxY - solid.minY + 1);
+  const solidCenterX = solid.minX + solidWidth / 2;
+  const solidBottom = solid.maxY;
+
+  const softWidth = Math.max(1, soft.maxX - soft.minX + 1);
+  const softHeight = Math.max(1, soft.maxY - soft.minY + 1);
+  const softCenterX = soft.minX + softWidth / 2;
+  const softCenterY = soft.minY + softHeight / 2;
+
+  const baseCanvasWidth = Math.max(EXPORT_WIDTH, Math.round(solidWidth / TARGET_WIDTH_PCT));
+  const baseCanvasHeight = Math.round(baseCanvasWidth * (9 / 16));
+  const canvasWidth = baseCanvasWidth;
+  const canvasHeight = baseCanvasHeight;
+
+  let scale = 1;
+  let widthPct = solidWidth / canvasWidth;
+
+  if (mode === 'exterior') {
+    if (widthPct < MIN_WIDTH_PCT) {
+      scale = MIN_WIDTH_PCT / widthPct;
+    } else if (widthPct > MAX_WIDTH_PCT) {
+      scale = MAX_WIDTH_PCT / widthPct;
+    }
+
+    const floorY = Math.round(canvasHeight * FLOOR_Y_PCT);
+    const maxScaleToFit = Math.min(
+      canvasWidth / paddedWidth,
+      canvasHeight / paddedHeight,
+      floorY / solidBottom
+    );
+    scale = Math.min(scale, maxScaleToFit);
+    widthPct = (solidWidth * scale) / canvasWidth;
+
+    if (DEBUG_OVERLAY) {
+      console.log('PROCESS DEBUG:', {
+        mode,
+        widthPct: Number(widthPct.toFixed(3)),
+        scale: Number(scale.toFixed(3)),
+      });
+    }
+
+    const scaledWidth = Math.round(paddedWidth * scale);
+    const scaledHeight = Math.round(paddedHeight * scale);
+    const scaledSolidBottom = solidBottom * scale;
+    const scaledSolidCenterX = solidCenterX * scale;
+
+    const floorYClamped = Math.round(canvasHeight * FLOOR_Y_PCT);
+    const canvasCenterX = canvasWidth / 2;
+    const carLeft = Math.round(canvasCenterX - scaledSolidCenterX);
+    const carTop = Math.round(floorYClamped - scaledSolidBottom);
+
+    const clampedLeft = Math.max(0, Math.min(carLeft, canvasWidth - scaledWidth));
+    const clampedTop = Math.max(0, Math.min(carTop, canvasHeight - scaledHeight));
+
+    const background = await createRoomBackground(backgroundTemplate, backgroundBuffer, canvasWidth, canvasHeight);
+    const scaledCutout = scale === 1
+      ? paddedBuffer
+      : await sharp(paddedBuffer)
+          .resize(scaledWidth, scaledHeight, { kernel: 'lanczos3' })
+          .toBuffer();
+
+    const composites: sharp.OverlayOptions[] = [
+      { input: scaledCutout, left: clampedLeft, top: clampedTop },
+    ];
+
+    if (logoBuffer) {
+      try {
+        const logoTargetWidth = Math.round(canvasWidth * LOGO_WIDTH_PERCENT);
+        const logoPadding = Math.round(canvasWidth * 0.012);
+        const logoMeta = await sharp(logoBuffer).metadata();
+        const logoScale = logoTargetWidth / (logoMeta.width || 500);
+        const logoHeight = Math.round((logoMeta.height || 200) * logoScale);
+
+        composites.push({
+          input: await sharp(logoBuffer)
+            .resize(logoTargetWidth, logoHeight, { kernel: 'lanczos3' })
+            .toBuffer(),
+          left: canvasWidth - logoTargetWidth - logoPadding,
+          top: canvasHeight - logoHeight - logoPadding,
+        });
+      } catch (e) {
+        console.error('Logo error:', e);
+      }
+    }
+
+    let composited = await sharp(background).composite(composites).toBuffer();
+
+    if (DEBUG_OVERLAY) {
+      const softBox = {
+        x: clampedLeft + soft.minX * scale,
+        y: clampedTop + soft.minY * scale,
+        w: softWidth * scale,
+        h: softHeight * scale,
+      };
+      const solidBox = {
+        x: clampedLeft + solid.minX * scale,
+        y: clampedTop + solid.minY * scale,
+        w: solidWidth * scale,
+        h: solidHeight * scale,
+      };
+      const overlaySvg = `
+        <svg width="${canvasWidth}" height="${canvasHeight}" xmlns="http://www.w3.org/2000/svg">
+          <line x1="0" y1="${floorYClamped}" x2="${canvasWidth}" y2="${floorYClamped}" stroke="#22c55e" stroke-width="2" stroke-dasharray="6 4"/>
+          <rect x="${softBox.x}" y="${softBox.y}" width="${softBox.w}" height="${softBox.h}" fill="none" stroke="#38bdf8" stroke-width="2"/>
+          <rect x="${solidBox.x}" y="${solidBox.y}" width="${solidBox.w}" height="${solidBox.h}" fill="none" stroke="#f59e0b" stroke-width="2"/>
+        </svg>
+      `;
+      composited = await sharp(composited)
+        .composite([{ input: Buffer.from(overlaySvg), left: 0, top: 0 }])
+        .toBuffer();
+    }
+  
+    const finalExport = await sharp(composited)
+      .resize(EXPORT_WIDTH, EXPORT_HEIGHT, {
+        fit: 'cover',
+        position: 'center',
+        kernel: 'lanczos3',
+      })
+      .jpeg({
+        quality: EXPORT_QUALITY,
+        chromaSubsampling: '4:4:4',
+      })
+      .toBuffer();
+
+    return { buffer: finalExport, mode };
+  }
+
+  // Interior mode: no showroom floor/wall, minimal cropping
+  const interiorBackgroundSvg = `
+    <svg width="${canvasWidth}" height="${canvasHeight}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="${canvasWidth}" height="${canvasHeight}" fill="#0f172a"/>
+    </svg>
+  `;
+  const interiorBackground = await sharp(Buffer.from(interiorBackgroundSvg)).toBuffer();
+
+  const availableWidth = canvasWidth * 0.9;
+  const availableHeight = canvasHeight * 0.9;
+  const scaleToFit = Math.min(availableWidth / softWidth, availableHeight / softHeight);
+  const maxScaleToFit = Math.min(canvasWidth / paddedWidth, canvasHeight / paddedHeight);
+  scale = Math.min(scaleToFit, maxScaleToFit);
+  scale = clamp(scale, 0.1, 2);
+  widthPct = (softWidth * scale) / canvasWidth;
+
+  if (DEBUG_OVERLAY) {
+    console.log('PROCESS DEBUG:', {
+      mode,
+      widthPct: Number(widthPct.toFixed(3)),
+      scale: Number(scale.toFixed(3)),
+    });
+  }
+
+  const scaledWidth = Math.round(paddedWidth * scale);
+  const scaledHeight = Math.round(paddedHeight * scale);
+  const scaledSoftCenterX = softCenterX * scale;
+  const scaledSoftCenterY = softCenterY * scale;
+  const canvasCenterX = canvasWidth / 2;
+  const canvasCenterY = canvasHeight / 2;
+  const carLeft = Math.round(canvasCenterX - scaledSoftCenterX);
+  const carTop = Math.round(canvasCenterY - scaledSoftCenterY);
+  const clampedLeft = Math.max(0, Math.min(carLeft, canvasWidth - scaledWidth));
+  const clampedTop = Math.max(0, Math.min(carTop, canvasHeight - scaledHeight));
+
+  const scaledCutout = scale === 1
+    ? paddedBuffer
+    : await sharp(paddedBuffer)
+        .resize(scaledWidth, scaledHeight, { kernel: 'lanczos3' })
+        .toBuffer();
+
   const composites: sharp.OverlayOptions[] = [
-    {
-      input: paddedBuffer,
-      left: clampedCarLeft,
-      top: clampedCarTop,
-    },
+    { input: scaledCutout, left: clampedLeft, top: clampedTop },
   ];
 
-  // Add logo if available
   if (logoBuffer) {
     try {
-      const logoTargetWidth = Math.round(finalCanvasWidth * LOGO_WIDTH_PERCENT);
-      const logoPadding = Math.round(finalCanvasWidth * 0.012);
+      const logoTargetWidth = Math.round(canvasWidth * LOGO_WIDTH_PERCENT);
+      const logoPadding = Math.round(canvasWidth * 0.012);
       const logoMeta = await sharp(logoBuffer).metadata();
       const logoScale = logoTargetWidth / (logoMeta.width || 500);
       const logoHeight = Math.round((logoMeta.height || 200) * logoScale);
@@ -296,56 +483,46 @@ async function compositeImage(
         input: await sharp(logoBuffer)
           .resize(logoTargetWidth, logoHeight, { kernel: 'lanczos3' })
           .toBuffer(),
-        left: finalCanvasWidth - logoTargetWidth - logoPadding,
-        top: finalCanvasHeight - logoHeight - logoPadding,
+        left: canvasWidth - logoTargetWidth - logoPadding,
+        top: canvasHeight - logoHeight - logoPadding,
       });
     } catch (e) {
       console.error('Logo error:', e);
     }
   }
 
-  // Composite car and logo
-  let composited = await sharp(background)
-    .composite(composites)
-    .toBuffer();
-  
-  // ===== DEBUG: Add visible text overlay =====
-  if (DEBUG_MODE) {
-    const timestamp = new Date().toISOString();
-    const debugId = Math.random().toString(36).substring(2, 8);
-    const debugText = `DEBUG: left=${clampedCarLeft} top=${clampedCarTop} | ${debugId} | ${timestamp}`;
-    
-    const textSvg = `
-      <svg width="${finalCanvasWidth}" height="${finalCanvasHeight}">
-        <rect x="10" y="10" width="${finalCanvasWidth - 20}" height="80" fill="rgba(255,0,0,0.8)" rx="10"/>
-        <text x="30" y="60" font-family="Arial, sans-serif" font-size="36" font-weight="bold" fill="white">
-          ${debugText}
-        </text>
+  let composited = await sharp(interiorBackground).composite(composites).toBuffer();
+
+  if (DEBUG_OVERLAY) {
+    const softBox = {
+      x: clampedLeft + soft.minX * scale,
+      y: clampedTop + soft.minY * scale,
+      w: softWidth * scale,
+      h: softHeight * scale,
+    };
+    const overlaySvg = `
+      <svg width="${canvasWidth}" height="${canvasHeight}" xmlns="http://www.w3.org/2000/svg">
+        <rect x="${softBox.x}" y="${softBox.y}" width="${softBox.w}" height="${softBox.h}" fill="none" stroke="#38bdf8" stroke-width="2"/>
       </svg>
     `;
-    
     composited = await sharp(composited)
-      .composite([{ input: Buffer.from(debugText.length > 0 ? textSvg : textSvg), top: 0, left: 0 }])
+      .composite([{ input: Buffer.from(overlaySvg), left: 0, top: 0 }])
       .toBuffer();
-      
-    console.log('DEBUG TEXT:', debugText);
   }
-  // ==========================================
-  
-  // Final resize + export (use 'cover' to maintain aspect ratio, never stretch)
+
   const finalExport = await sharp(composited)
     .resize(EXPORT_WIDTH, EXPORT_HEIGHT, {
-      fit: 'cover',      // Maintains aspect ratio, crops if needed
-      position: 'center', // Center crop
-      kernel: 'lanczos3'
+      fit: 'cover',
+      position: 'center',
+      kernel: 'lanczos3',
     })
-    .jpeg({ 
+    .jpeg({
       quality: EXPORT_QUALITY,
-      chromaSubsampling: '4:4:4'
+      chromaSubsampling: '4:4:4',
     })
     .toBuffer();
 
-  return finalExport;
+  return { buffer: finalExport, mode };
 }
 
 export async function POST(request: NextRequest) {
@@ -455,7 +632,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 4: Composite final image
-    const finalBuffer = await compositeImage(cutoutBuffer, validBackground, logoBuffer, userBackgroundBuffer);
+    const { buffer: finalBuffer, mode } = await compositeImage(
+      cutoutBuffer,
+      validBackground,
+      logoBuffer,
+      userBackgroundBuffer
+    );
 
     // Step 5: Upload final to outputs (use outputId for unique filename)
     const { error: outputUploadError } = await adminClient.storage
@@ -474,7 +656,7 @@ export async function POST(request: NextRequest) {
       console.log('Filename:', `${outputId}.jpg`);
     }
 
-    return NextResponse.json({ id: outputId, success: true });
+    return NextResponse.json({ id: outputId, success: true, mode });
   } catch (error) {
     console.error('Processing error:', error);
     return NextResponse.json(

@@ -176,7 +176,7 @@ export default function AuthModal({ isOpen, mode, onClose, onModeChange }: AuthM
       return;
     }
 
-    setNotice('Check your email to confirm your account before signing in.');
+    setNotice('We’ve sent you a confirmation email. Click the link in your inbox to activate your account, then come back here to sign in.');
     setLoading(false);
   };
 

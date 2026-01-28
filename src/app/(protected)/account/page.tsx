@@ -32,6 +32,16 @@ export default function AccountPage() {
     return createClient();
   }, []);
 
+  const monthlyPriceId = process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY ?? null;
+  const yearlyPriceId = process.env.NEXT_PUBLIC_STRIPE_PRICE_YEARLY ?? null;
+
+  const getPlanLabel = useCallback((planId: string | null) => {
+    if (!planId) return null;
+    if (planId === monthlyPriceId) return 'Monthly';
+    if (planId === yearlyPriceId) return 'Yearly';
+    return 'Standard';
+  }, [monthlyPriceId, yearlyPriceId]);
+
   const loadProfile = useCallback(async () => {
     if (!supabase) return;
     const { data: { user } } = await supabase.auth.getUser();
@@ -148,7 +158,7 @@ export default function AccountPage() {
   };
 
   const hasSubscription = !!stripeCustomerId;
-  const planLabel = hasSubscription ? (plan || 'Standard') : 'No active subscription';
+  const planLabel = hasSubscription ? (getPlanLabel(plan) || 'Standard') : 'No active subscription';
   const statusLabel = hasSubscription ? (planStatus || 'Active') : 'Inactive';
 
   return (

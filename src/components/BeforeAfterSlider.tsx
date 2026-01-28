@@ -10,6 +10,8 @@
    afterAlt?: string;
    initial?: number;
    autoDemo?: boolean;
+  mode?: 'split' | 'overlay';
+  fit?: 'cover' | 'contain';
  };
  
  const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
@@ -21,6 +23,8 @@
    afterAlt = 'After image',
    initial = 50,
    autoDemo = true,
+  mode = 'split',
+  fit = 'cover',
  }: BeforeAfterSliderProps) {
    const containerRef = useRef<HTMLDivElement>(null);
   const [value, setValue] = useState(() => clamp(initial, 0, 100));
@@ -126,7 +130,9 @@
  
    const sliderPosition = useMemo(() => clamp(value, 0, 100), [value]);
  
-   return (
+  const imageFitClass = fit === 'contain' ? 'object-contain' : 'object-cover';
+
+  return (
      <div
        ref={containerRef}
        className="relative w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/40 shadow-xl"
@@ -139,49 +145,85 @@
        aria-valuenow={Math.round(sliderPosition)}
        tabIndex={0}
      >
-       <div className="relative aspect-video w-full select-none">
-         <Image
-           src={beforeSrc}
-           alt={beforeAlt}
-           fill
-           sizes="(max-width: 1024px) 100vw, 960px"
-           className="object-cover"
-           priority={false}
-         />
- 
-         <div
-           className="absolute inset-0 overflow-hidden"
-           style={{ width: `${sliderPosition}%` }}
-         >
-           <Image
-             src={afterSrc}
-             alt={afterAlt}
-             fill
-             sizes="(max-width: 1024px) 100vw, 960px"
-             className="object-cover"
-             priority={false}
-           />
-         </div>
- 
-         <div
-           className="absolute inset-y-0 z-10"
-           style={{ left: `${sliderPosition}%` }}
-         >
-           <div className="absolute inset-y-0 -translate-x-1/2 w-px bg-white/70" />
-           <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2">
-             <div className="h-10 w-10 rounded-full border border-white/60 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center shadow-lg">
-               <div className="h-5 w-5 rounded-full border border-white/70" />
-             </div>
-           </div>
-         </div>
- 
-         <div className="absolute left-4 top-4 text-xs uppercase tracking-widest text-slate-200/80 bg-slate-950/60 px-2 py-1 rounded-md">
-           Before
-         </div>
-         <div className="absolute right-4 top-4 text-xs uppercase tracking-widest text-slate-200/80 bg-slate-950/60 px-2 py-1 rounded-md">
-           After
-         </div>
-       </div>
+      <div className="relative aspect-video w-full select-none">
+        {mode === 'overlay' ? (
+          <>
+            <Image
+              src={afterSrc}
+              alt={afterAlt}
+              fill
+              sizes="(max-width: 1024px) 100vw, 960px"
+              className={imageFitClass}
+              priority={false}
+            />
+            <div
+              className="absolute inset-0"
+              style={{ opacity: sliderPosition / 100 }}
+            >
+              <Image
+                src={beforeSrc}
+                alt={beforeAlt}
+                fill
+                sizes="(max-width: 1024px) 100vw, 960px"
+                className={imageFitClass}
+                priority={false}
+              />
+            </div>
+            <div
+              className="absolute z-10 top-1/2 left-1/2 -translate-y-1/2"
+              style={{ transform: `translate(-50%, -50%) translateX(${sliderPosition - 50}%)` }}
+            >
+              <div className="h-9 w-9 rounded-full border border-white/60 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                <div className="h-4 w-4 rounded-full border border-white/70" />
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <Image
+              src={beforeSrc}
+              alt={beforeAlt}
+              fill
+              sizes="(max-width: 1024px) 100vw, 960px"
+              className={imageFitClass}
+              priority={false}
+            />
+
+            <div
+              className="absolute inset-0"
+              style={{ clipPath: `inset(0 ${100 - sliderPosition}% 0 0)` }}
+            >
+              <Image
+                src={afterSrc}
+                alt={afterAlt}
+                fill
+                sizes="(max-width: 1024px) 100vw, 960px"
+                className={imageFitClass}
+                priority={false}
+              />
+            </div>
+
+            <div
+              className="absolute inset-y-0 z-10"
+              style={{ left: `${sliderPosition}%` }}
+            >
+              <div className="absolute inset-y-0 -translate-x-1/2 w-px bg-white/70" />
+              <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2">
+                <div className="h-10 w-10 rounded-full border border-white/60 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                  <div className="h-5 w-5 rounded-full border border-white/70" />
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="absolute left-4 top-4 text-xs uppercase tracking-widest text-slate-200/80 bg-slate-950/60 px-2 py-1 rounded-md">
+          Before
+        </div>
+        <div className="absolute right-4 top-4 text-xs uppercase tracking-widest text-slate-200/80 bg-slate-950/60 px-2 py-1 rounded-md">
+          After
+        </div>
+      </div>
      </div>
    );
  }
