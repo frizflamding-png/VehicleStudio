@@ -37,7 +37,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unable to load profile' }, { status: 500 });
     }
 
-    const stripe = new Stripe(stripeSecretKey, { apiVersion: '2025-12-18.acacia' });
+    const stripe = new Stripe(stripeSecretKey, { apiVersion: '2023-10-16' });
     let stripeCustomerId = profile?.stripe_customer_id ?? null;
 
     if (!stripeCustomerId) {
