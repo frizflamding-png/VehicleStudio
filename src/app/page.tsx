@@ -11,7 +11,7 @@ import AuthModal from '@/components/AuthModal';
 
 export default function Home() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'reset'>('signin');
   const router = useRouter();
 
   const openSignIn = () => {
