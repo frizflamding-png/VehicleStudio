@@ -13,7 +13,7 @@ export default function UpgradePage() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signup');
+  const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'reset'>('signup');
   const [hasCustomerId, setHasCustomerId] = useState(false);
   const router = useRouter();
 
