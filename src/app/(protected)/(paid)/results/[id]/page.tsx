@@ -21,6 +21,7 @@ import BeforeAfterSlider from '@/components/BeforeAfterSlider';
   const [downloading, setDownloading] = useState(false);
   const searchParams = useSearchParams();
   const isInterior = searchParams.get('mode') === 'interior';
+  const hasInteriorHint = searchParams.get('interiorHint') === '1';
    
    // Memoize Supabase client to prevent recreation on every render
    const supabase = useMemo(() => createClient(), []);
@@ -195,11 +196,15 @@ import BeforeAfterSlider from '@/components/BeforeAfterSlider';
                 Back to Single
               </Link>
             </div>
-            {isInterior && (
-              <div className="bg-slate-900/50 border border-slate-800 rounded px-2 py-2 text-xs text-slate-300">
-                Interior detected – studio background disabled.
+            {isInterior ? (
+              <div className="bg-amber-900/30 border border-amber-700/50 rounded px-2 py-2 text-xs text-amber-200">
+                <span className="font-medium">Interior photo</span> – Using centered layout for cabin shots.
               </div>
-            )}
+            ) : hasInteriorHint ? (
+              <div className="bg-slate-900/50 border border-slate-800 rounded px-2 py-2 text-xs text-slate-400">
+                <span className="text-slate-300">Note:</span> Some interior elements detected. Studio background applied.
+              </div>
+            ) : null}
 
             <div className="bg-slate-900/50 border border-slate-800 rounded overflow-hidden">
               <div className="px-2.5 py-1.5 border-b border-slate-800 bg-slate-900/80">

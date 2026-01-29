@@ -106,12 +106,31 @@ export default function MarketingPricingCard({ onSubscribe }: MarketingPricingCa
         </div>
       </div>
 
-      <div className="flex items-baseline gap-2 mb-4">
+      <div className="flex items-center gap-3 mb-1">
         <span className="text-4xl font-semibold text-white">{activePricing.price}</span>
         <span className="text-slate-400">{activePricing.label}</span>
+        {cycle === 'yearly' && (
+          <span className="inline-block px-2 py-0.5 text-xs font-medium text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-full">
+            Best value
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2 mb-4">
+        <span className="inline-block px-2 py-0.5 text-xs font-medium text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full">
+          7-day free trial
+        </span>
+        {cycle === 'yearly' && (
+          <span className="text-sm text-emerald-400">· Save 17% annually</span>
+        )}
       </div>
 
       <ul className="space-y-3 mb-6">
+        <li className="flex items-center gap-3 text-sm text-slate-300">
+          <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          Unlimited processing (fair use)
+        </li>
         <li className="flex items-center gap-3 text-sm text-slate-300">
           <svg className="w-4 h-4 text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -154,8 +173,11 @@ export default function MarketingPricingCard({ onSubscribe }: MarketingPricingCa
         disabled={loading}
         className="block w-full px-6 py-3 bg-[#1FB6A6] text-white font-medium rounded-lg text-center hover:bg-[#22C6B5] active:bg-[#179E90] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
       >
-        {loading ? 'Redirecting...' : 'Subscribe'}
+        {loading ? 'Redirecting...' : 'Start 7-day free trial'}
       </button>
+      <p className="mt-3 text-xs text-slate-500 text-center">
+        Card required
+      </p>
     </div>
   );
 }

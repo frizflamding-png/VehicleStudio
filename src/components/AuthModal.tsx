@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 
-type AuthMode = 'signin' | 'signup';
+type AuthMode = 'signin' | 'signup' | 'reset';
 
 type AuthModalProps = {
   isOpen: boolean;
@@ -176,8 +176,60 @@ export default function AuthModal({ isOpen, mode, onClose, onModeChange }: AuthM
       return;
     }
 
-    setNotice('We’ve sent you a confirmation email. Click the link in your inbox to activate your account, then come back here to sign in.');
+    setNotice("We've sent you a confirmation email. Click the link in your inbox to activate your account, then come back here to sign in.");
     setLoading(false);
+  };
+
+  const handleResetPassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!supabase) return;
+    setLoading(true);
+    setError('');
+    setNotice('');
+
+    const redirectTo = `${window.location.origin}/auth/reset`;
+
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+
+    if (resetError) {
+      setError(resetError.message);
+      setLoading(false);
+      return;
+    }
+
+    setNotice('Check your email for a reset link.');
+    setLoading(false);
+  };
+
+  const getFormHandler = () => {
+    if (mode === 'signin') return handleSignIn;
+    if (mode === 'signup') return handleSignUp;
+    return handleResetPassword;
+  };
+
+  const getTitle = () => {
+    if (mode === 'signin') return 'Sign in';
+    if (mode === 'signup') return 'Create account';
+    return 'Reset password';
+  };
+
+  const getSubtitle = () => {
+    if (mode === 'signin') return 'Enter your credentials to continue.';
+    if (mode === 'signup') return 'Create your account to start using VehicleStudio.';
+    return 'Enter your email to receive a reset link.';
+  };
+
+  const getButtonText = () => {
+    if (loading) {
+      if (mode === 'signin') return 'Signing in...';
+      if (mode === 'signup') return 'Creating account...';
+      return 'Sending...';
+    }
+    if (mode === 'signin') return 'Sign in';
+    if (mode === 'signup') return 'Create account';
+    return 'Send reset link';
   };
 
   if (!isOpen) return null;
@@ -196,12 +248,10 @@ export default function AuthModal({ isOpen, mode, onClose, onModeChange }: AuthM
         <div className="flex items-start justify-between gap-4 mb-6">
           <div>
             <h2 className="text-xl font-semibold text-white">
-              {mode === 'signin' ? 'Sign in' : 'Create account'}
+              {getTitle()}
             </h2>
             <p className="text-sm text-slate-400 mt-1">
-              {mode === 'signin'
-                ? 'Enter your credentials to continue.'
-                : 'Create your account to start using VehicleStudio.'}
+              {getSubtitle()}
             </p>
           </div>
           <button
@@ -221,7 +271,7 @@ export default function AuthModal({ isOpen, mode, onClose, onModeChange }: AuthM
             </p>
           </div>
         ) : (
-          <form onSubmit={mode === 'signin' ? handleSignIn : handleSignUp} className="space-y-4">
+          <form onSubmit={getFormHandler()} className="space-y-4">
             {error && (
               <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
                 {error}
@@ -247,19 +297,30 @@ export default function AuthModal({ isOpen, mode, onClose, onModeChange }: AuthM
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-300 mb-2">
-                Password
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2.5 text-white placeholder-slate-500 focus:border-slate-600 focus:outline-none transition-colors"
-                placeholder={mode === 'signup' ? 'Min. 8 characters' : '••••••••'}
-                required
-              />
-            </div>
+            {mode !== 'reset' && (
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-2.5 text-white placeholder-slate-500 focus:border-slate-600 focus:outline-none transition-colors"
+                  placeholder={mode === 'signup' ? 'Min. 8 characters' : '••••••••'}
+                  required
+                />
+                {mode === 'signin' && (
+                  <button
+                    type="button"
+                    onClick={() => onModeChange('reset')}
+                    className="mt-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </div>
+            )}
 
             {mode === 'signup' && (
               <div>
@@ -282,19 +343,23 @@ export default function AuthModal({ isOpen, mode, onClose, onModeChange }: AuthM
               disabled={loading}
               className="w-full rounded-lg bg-white px-4 py-2.5 font-medium text-slate-900 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {loading
-                ? mode === 'signin'
-                  ? 'Signing in...'
-                  : 'Creating account...'
-                : mode === 'signin'
-                  ? 'Sign in'
-                  : 'Create account'}
+              {getButtonText()}
             </button>
+
+            {mode === 'reset' && (
+              <button
+                type="button"
+                onClick={() => onModeChange('signin')}
+                className="w-full text-sm text-slate-400 hover:text-white transition-colors"
+              >
+                ← Back to sign in
+              </button>
+            )}
           </form>
         )}
 
         <div className="mt-5 text-sm text-slate-400 text-center">
-          {mode === 'signin' ? (
+          {mode === 'signin' && (
             <>
               Don&apos;t have an account?{' '}
               <button
@@ -305,9 +370,22 @@ export default function AuthModal({ isOpen, mode, onClose, onModeChange }: AuthM
                 Create account
               </button>
             </>
-          ) : (
+          )}
+          {mode === 'signup' && (
             <>
               Already have an account?{' '}
+              <button
+                type="button"
+                onClick={() => onModeChange('signin')}
+                className="text-cyan-400 hover:text-cyan-300"
+              >
+                Sign in
+              </button>
+            </>
+          )}
+          {mode === 'reset' && (
+            <>
+              Remember your password?{' '}
               <button
                 type="button"
                 onClick={() => onModeChange('signin')}

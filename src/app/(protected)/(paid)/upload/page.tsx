@@ -153,8 +153,12 @@
        }
  
        safeLocalStorage.setItem('background', background);
-      const modeParam = data.mode === 'interior' ? '?mode=interior' : '';
-      router.push(`/results/${data.id}${modeParam}`);
+      // Build query params for results page
+      const params = new URLSearchParams();
+      if (data.mode === 'interior') params.set('mode', 'interior');
+      if (data.interiorHint) params.set('interiorHint', '1');
+      const queryString = params.toString();
+      router.push(`/results/${data.id}${queryString ? `?${queryString}` : ''}`);
      } catch (err) {
        setError(err instanceof Error ? err.message : 'An error occurred');
        setProcessing(false);

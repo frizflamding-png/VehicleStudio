@@ -5,17 +5,56 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 
+type FormMode = 'signin' | 'reset';
+
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [formMode, setFormMode] = useState<FormMode>('signin');
   const router = useRouter();
   
   const supabase = useMemo(() => {
     if (!isSupabaseConfigured()) return null;
     return createClient();
   }, []);
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supabase) return;
+    setLoading(true);
+    setError('');
+    setNotice('');
+
+    const redirectTo = `${window.location.origin}/auth/reset`;
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+
+    if (error) {
+      setError(error.message);
+      setLoading(false);
+      return;
+    }
+
+    setNotice('Check your email for a reset link.');
+    setLoading(false);
+  };
+
+  const switchToReset = () => {
+    setFormMode('reset');
+    setError('');
+    setNotice('');
+  };
+
+  const switchToSignIn = () => {
+    setFormMode('signin');
+    setError('');
+    setNotice('');
+  };
 
   if (!supabase) {
     return (
@@ -79,65 +118,134 @@ export default function LoginPage() {
         <div className="w-1/2 flex items-center justify-center p-12">
           <div className="w-full max-w-sm">
             <div className="mb-8">
-              <h2 className="text-2xl font-semibold text-white mb-2">Sign in</h2>
-              <p className="text-slate-400">Enter your credentials to continue</p>
+              <h2 className="text-2xl font-semibold text-white mb-2">
+                {formMode === 'signin' ? 'Sign in' : 'Reset password'}
+              </h2>
+              <p className="text-slate-400">
+                {formMode === 'signin' 
+                  ? 'Enter your credentials to continue' 
+                  : 'Enter your email to receive a reset link'}
+              </p>
             </div>
 
-            <form onSubmit={handleLogin} className="space-y-5">
-              {error && (
-                <div className="p-3 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-                  {error}
-                </div>
-              )}
-
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
-                  Email
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded text-white placeholder-slate-500 focus:outline-none focus:border-slate-600 transition-colors"
-                  placeholder="you@dealership.com"
-                  required
-                />
-              </div>
-
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-2">
-                  Password
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded text-white placeholder-slate-500 focus:outline-none focus:border-slate-600 transition-colors"
-                  placeholder="••••••••"
-                  required
-                />
-              </div>
-
-              <button 
-                type="submit" 
-                disabled={loading} 
-                className="w-full px-4 py-2.5 bg-white text-slate-900 font-medium rounded hover:bg-slate-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {loading ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                    </svg>
-                    Signing in...
-                  </>
-                ) : (
-                  'Sign in'
+            {formMode === 'signin' ? (
+              <form onSubmit={handleLogin} className="space-y-5">
+                {error && (
+                  <div className="p-3 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                    {error}
+                  </div>
                 )}
-              </button>
-            </form>
+
+                <div>
+                  <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
+                    Email
+                  </label>
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded text-white placeholder-slate-500 focus:outline-none focus:border-slate-600 transition-colors"
+                    placeholder="you@dealership.com"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-2">
+                    Password
+                  </label>
+                  <input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded text-white placeholder-slate-500 focus:outline-none focus:border-slate-600 transition-colors"
+                    placeholder="••••••••"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={switchToReset}
+                    className="mt-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+
+                <button 
+                  type="submit" 
+                  disabled={loading} 
+                  className="w-full px-4 py-2.5 bg-white text-slate-900 font-medium rounded hover:bg-slate-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {loading ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Signing in...
+                    </>
+                  ) : (
+                    'Sign in'
+                  )}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleResetPassword} className="space-y-5">
+                {error && (
+                  <div className="p-3 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                    {error}
+                  </div>
+                )}
+                {notice && (
+                  <div className="p-3 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm">
+                    {notice}
+                  </div>
+                )}
+
+                <div>
+                  <label htmlFor="reset-email" className="block text-sm font-medium text-slate-300 mb-2">
+                    Email
+                  </label>
+                  <input
+                    id="reset-email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded text-white placeholder-slate-500 focus:outline-none focus:border-slate-600 transition-colors"
+                    placeholder="you@dealership.com"
+                    required
+                  />
+                </div>
+
+                <button 
+                  type="submit" 
+                  disabled={loading} 
+                  className="w-full px-4 py-2.5 bg-white text-slate-900 font-medium rounded hover:bg-slate-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {loading ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Sending...
+                    </>
+                  ) : (
+                    'Send reset link'
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={switchToSignIn}
+                  className="w-full text-sm text-slate-400 hover:text-white transition-colors"
+                >
+                  ← Back to sign in
+                </button>
+              </form>
+            )}
 
             <p className="mt-6 text-sm text-slate-400">
               Don&apos;t have an account?{' '}
@@ -161,61 +269,124 @@ export default function LoginPage() {
         </div>
 
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold mb-2 text-white">Welcome back</h1>
-          <p className="text-slate-400">Sign in to continue</p>
+          <h1 className="text-3xl font-bold mb-2 text-white">
+            {formMode === 'signin' ? 'Welcome back' : 'Reset password'}
+          </h1>
+          <p className="text-slate-400">
+            {formMode === 'signin' ? 'Sign in to continue' : 'Enter your email to receive a reset link'}
+          </p>
         </div>
 
-        <form onSubmit={handleLogin} className="w-full max-w-sm space-y-5">
-          {error && (
-            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
-              {error}
-            </div>
-          )}
-
-          <div>
-            <label htmlFor="email-mobile" className="block text-sm font-medium text-slate-300 mb-2">
-              Email
-            </label>
-            <input
-              id="email-mobile"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="input-field"
-              placeholder="you@example.com"
-              required
-            />
-          </div>
-
-          <div>
-            <label htmlFor="password-mobile" className="block text-sm font-medium text-slate-300 mb-2">
-              Password
-            </label>
-            <input
-              id="password-mobile"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="input-field"
-              placeholder="••••••••"
-              required
-            />
-          </div>
-
-          <button type="submit" disabled={loading} className="btn-primary mt-6">
-            {loading ? (
-              <span className="inline-flex items-center gap-2">
-                <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Signing in...
-              </span>
-            ) : (
-              'Sign In'
+        {formMode === 'signin' ? (
+          <form onSubmit={handleLogin} className="w-full max-w-sm space-y-5">
+            {error && (
+              <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                {error}
+              </div>
             )}
-          </button>
-        </form>
+
+            <div>
+              <label htmlFor="email-mobile" className="block text-sm font-medium text-slate-300 mb-2">
+                Email
+              </label>
+              <input
+                id="email-mobile"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="input-field"
+                placeholder="you@example.com"
+                required
+              />
+            </div>
+
+            <div>
+              <label htmlFor="password-mobile" className="block text-sm font-medium text-slate-300 mb-2">
+                Password
+              </label>
+              <input
+                id="password-mobile"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="input-field"
+                placeholder="••••••••"
+                required
+              />
+              <button
+                type="button"
+                onClick={switchToReset}
+                className="mt-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+              >
+                Forgot password?
+              </button>
+            </div>
+
+            <button type="submit" disabled={loading} className="btn-primary mt-6">
+              {loading ? (
+                <span className="inline-flex items-center gap-2">
+                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Signing in...
+                </span>
+              ) : (
+                'Sign In'
+              )}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleResetPassword} className="w-full max-w-sm space-y-5">
+            {error && (
+              <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                {error}
+              </div>
+            )}
+            {notice && (
+              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm">
+                {notice}
+              </div>
+            )}
+
+            <div>
+              <label htmlFor="reset-email-mobile" className="block text-sm font-medium text-slate-300 mb-2">
+                Email
+              </label>
+              <input
+                id="reset-email-mobile"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="input-field"
+                placeholder="you@example.com"
+                required
+              />
+            </div>
+
+            <button type="submit" disabled={loading} className="btn-primary mt-6">
+              {loading ? (
+                <span className="inline-flex items-center gap-2">
+                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Sending...
+                </span>
+              ) : (
+                'Send reset link'
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={switchToSignIn}
+              className="w-full text-sm text-slate-400 hover:text-white transition-colors mt-4"
+            >
+              ← Back to sign in
+            </button>
+          </form>
+        )}
 
         <p className="mt-8 text-slate-400">
           Don&apos;t have an account?{' '}

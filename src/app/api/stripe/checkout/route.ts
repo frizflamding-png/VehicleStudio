@@ -37,7 +37,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unable to load profile' }, { status: 500 });
     }
 
-    const stripe = new Stripe(stripeSecretKey, { apiVersion: '2023-10-16' });
+    const stripe = new Stripe(stripeSecretKey, { apiVersion: '2025-12-18.acacia' });
     let stripeCustomerId = profile?.stripe_customer_id ?? null;
 
     if (!stripeCustomerId) {
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
 
     const origin = request.headers.get('origin') || process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
 
-    // Create checkout session with subscription_data to pass user_id
+    // Create checkout session with subscription_data to pass user_id and trial
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       customer: stripeCustomerId ?? undefined,
@@ -90,6 +90,7 @@ export async function POST(request: Request) {
       success_url: `${origin}/studio?checkout=success`,
       cancel_url: `${origin}/?checkout=cancel`,
       subscription_data: {
+        trial_period_days: 7,
         metadata: {
           user_id: user.id,
         },

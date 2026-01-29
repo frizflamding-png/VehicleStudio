@@ -1,10 +1,20 @@
- 'use client';
- 
- import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
- import type { FileObject } from '@supabase/storage-js';
- import { useRouter } from 'next/navigation';
- import Image from 'next/image';
- import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
+'use client';
+
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import type { FileObject } from '@supabase/storage-js';
+import { useRouter } from 'next/navigation';
+import Image from 'next/image';
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
+
+// Debounce hook for auto-save
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
  
  const BACKGROUNDS = [
    { id: 'showroom-grey', label: 'Showroom Grey', preview: '/templates/backgrounds/showroom-grey.jpg' },
@@ -37,19 +47,42 @@
    storagePath: string;
  };
  
- export default function SettingsPage() {
-   const [logoUrl, setLogoUrl] = useState<string | null>(null);
-   const [logoFile, setLogoFile] = useState<File | null>(null);
-   const [logoPreview, setLogoPreview] = useState<string | null>(null);
-   const [background, setBackground] = useState('showroom-grey');
-   const [uploading, setUploading] = useState(false);
-   const [uploadingBackground, setUploadingBackground] = useState(false);
-   const [saving, setSaving] = useState(false);
-   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-   const [userBackgrounds, setUserBackgrounds] = useState<UserBackground[]>([]);
-   const fileInputRef = useRef<HTMLInputElement>(null);
-   const backgroundInputRef = useRef<HTMLInputElement>(null);
-   const router = useRouter();
+// Logo scale: percentage of canvas width (5-20%)
+const DEFAULT_LOGO_SCALE = 10;
+const MIN_LOGO_SCALE = 5;
+const MAX_LOGO_SCALE = 20;
+
+// Car scale: percentage of frame width (60-95%)
+const DEFAULT_CAR_SCALE = 82;
+const MIN_CAR_SCALE = 60;
+const MAX_CAR_SCALE = 95;
+
+// Shadow intensity: 0-100%
+const DEFAULT_SHADOW_INTENSITY = 100;
+
+export default function SettingsPage() {
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoScale, setLogoScale] = useState(DEFAULT_LOGO_SCALE);
+  const [carScale, setCarScale] = useState(DEFAULT_CAR_SCALE);
+  const [shadowIntensity, setShadowIntensity] = useState(DEFAULT_SHADOW_INTENSITY);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [background, setBackground] = useState('showroom-grey');
+  const [uploading, setUploading] = useState(false);
+  const [uploadingBackground, setUploadingBackground] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [userBackgrounds, setUserBackgrounds] = useState<UserBackground[]>([]);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const backgroundInputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
+  
+  // Debounced values for auto-save
+  const debouncedLogoScale = useDebounce(logoScale, 500);
+  const debouncedCarScale = useDebounce(carScale, 500);
+  const debouncedShadowIntensity = useDebounce(shadowIntensity, 500);
    
    const isConfigured = isSupabaseConfigured();
    
@@ -58,21 +91,33 @@
      return createClient();
    }, [isConfigured]);
  
-   const loadUserSettings = useCallback(async () => {
-     if (!supabase) return;
-     const { data: { user } } = await supabase.auth.getUser();
-     if (!user) return;
- 
-     const { data: profile } = await supabase
-       .from('profiles')
-       .select('background_id')
-       .eq('id', user.id)
-       .maybeSingle<{ background_id: string | null }>();
- 
-     if (profile?.background_id) {
-       setBackground(profile.background_id);
-       safeLocalStorage.setItem('background', profile.background_id);
-     }
+  const loadUserSettings = useCallback(async () => {
+    if (!supabase) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('background_id, logo_scale, car_scale, shadow_intensity')
+      .eq('id', user.id)
+      .maybeSingle<{ background_id: string | null; logo_scale: number | null; car_scale: number | null; shadow_intensity: number | null }>();
+
+    if (profile?.background_id) {
+      setBackground(profile.background_id);
+      safeLocalStorage.setItem('background', profile.background_id);
+    }
+    if (profile?.logo_scale) {
+      setLogoScale(profile.logo_scale);
+    }
+    if (profile?.car_scale) {
+      setCarScale(profile.car_scale);
+    }
+    if (profile?.shadow_intensity !== null && profile?.shadow_intensity !== undefined) {
+      setShadowIntensity(profile.shadow_intensity);
+    }
+    
+    // Mark settings as loaded after a brief delay to prevent immediate auto-save
+    setTimeout(() => setSettingsLoaded(true), 100);
  
      const { data: logoData } = await supabase.storage
        .from('logos')
@@ -108,16 +153,47 @@
      }
    }, [supabase]);
  
-   useEffect(() => {
-     const saved = safeLocalStorage.getItem('background');
-     if (saved) setBackground(saved);
-     
-     if (supabase) {
-       loadUserSettings();
-     }
-   }, [supabase, loadUserSettings]);
- 
-   if (!supabase) {
+  useEffect(() => {
+    const saved = safeLocalStorage.getItem('background');
+    if (saved) setBackground(saved);
+    
+    if (supabase) {
+      loadUserSettings();
+    }
+  }, [supabase, loadUserSettings]);
+
+  // Auto-save slider settings when they change (after initial load)
+  useEffect(() => {
+    if (!settingsLoaded || !supabase) return;
+    
+    const autoSave = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        
+        const { error } = await supabase
+          .from('profiles')
+          .upsert({ 
+            id: user.id, 
+            logo_scale: debouncedLogoScale,
+            car_scale: debouncedCarScale,
+            shadow_intensity: debouncedShadowIntensity
+          }, { onConflict: 'id' });
+        
+        if (error) {
+          console.error('Auto-save failed:', error);
+          setMessage({ type: 'error', text: `Save failed: ${error.message}` });
+        }
+      } catch (err) {
+        console.error('Auto-save failed:', err);
+        setMessage({ type: 'error', text: 'Failed to save settings' });
+      }
+    };
+    
+    autoSave();
+  }, [debouncedLogoScale, debouncedCarScale, debouncedShadowIntensity, settingsLoaded, supabase]);
+
+  if (!supabase) {
      return (
        <div className="min-h-[calc(100vh-8rem)] lg:min-h-[calc(100vh-6.25rem)]">
          <div className="hidden lg:block">
@@ -226,67 +302,81 @@
      }
    };
  
-   const handleUploadLogo = async () => {
-     if (!logoFile || !supabase) return;
-     
-     setUploading(true);
-     setMessage(null);
+  const handleUploadLogo = async () => {
+    if (!logoFile || !supabase) return;
+    
+    setUploading(true);
+    setMessage(null);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      // Always save as PNG for consistency
+      // The logo file is uploaded as-is (browser will handle common formats)
+      const fileName = `${user.id}.png`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('logos')
+        .upload(fileName, logoFile, {
+          upsert: true,
+          contentType: 'image/png',
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: signedData } = await supabase.storage
+        .from('logos')
+        .createSignedUrl(fileName, 3600);
+
+      setLogoUrl(signedData?.signedUrl || null);
+      setLogoFile(null);
+      setLogoPreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      
+      setMessage({ type: 'success', text: 'Logo uploaded' });
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Upload failed' });
+    } finally {
+      setUploading(false);
+    }
+  };
  
-     try {
-       const { data: { user } } = await supabase.auth.getUser();
-       if (!user) throw new Error('Not authenticated');
- 
-       // Get file extension from the uploaded file
-       const fileExt = logoFile.name.split('.').pop()?.toLowerCase() || 'png';
-       const fileName = `${user.id}.${fileExt}`;
-       
-       const { error: uploadError } = await supabase.storage
-         .from('logos')
-         .upload(fileName, logoFile, {
-           upsert: true,
-         });
- 
-       if (uploadError) throw uploadError;
- 
-       const { data: signedData } = await supabase.storage
-         .from('logos')
-         .createSignedUrl(fileName, 3600);
- 
-       setLogoUrl(signedData?.signedUrl || null);
-       setLogoFile(null);
-       setLogoPreview(null);
-       if (fileInputRef.current) fileInputRef.current.value = '';
-       
-       setMessage({ type: 'success', text: 'Logo uploaded' });
-     } catch (err) {
-       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Upload failed' });
-     } finally {
-       setUploading(false);
-     }
-   };
- 
-   const handleSaveSettings = async () => {
-     setSaving(true);
-     setMessage(null);
-     safeLocalStorage.setItem('background', background);
- 
-     try {
-       if (supabase) {
-         const { data: { user } } = await supabase.auth.getUser();
-         if (user) {
-           const { error } = await supabase
-             .from('profiles')
-             .upsert({ id: user.id, background_id: background }, { onConflict: 'id' });
-           if (error) throw error;
-         }
-       }
-       setMessage({ type: 'success', text: 'Saved' });
-     } catch (err) {
-       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Save failed' });
-     } finally {
-       setSaving(false);
-     }
-   };
+  const handleSaveSettings = async () => {
+    setSaving(true);
+    setMessage(null);
+    safeLocalStorage.setItem('background', background);
+
+    try {
+      if (supabase) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { error } = await supabase
+            .from('profiles')
+            .upsert({ 
+              id: user.id, 
+              background_id: background, 
+              logo_scale: logoScale,
+              car_scale: carScale,
+              shadow_intensity: shadowIntensity
+            }, { onConflict: 'id' });
+          if (error) throw error;
+        }
+      }
+      setMessage({ type: 'success', text: 'Settings saved' });
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Save failed' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleResetToDefaults = () => {
+    setLogoScale(DEFAULT_LOGO_SCALE);
+    setCarScale(DEFAULT_CAR_SCALE);
+    setShadowIntensity(DEFAULT_SHADOW_INTENSITY);
+    setMessage({ type: 'success', text: 'Reset to defaults' });
+  };
  
    const handleSignOut = async () => {
      if (supabase) {
@@ -363,11 +453,107 @@
                        </div>
                      </div>
                    </div>
-                   <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" onChange={handleLogoChange} className="hidden" />
-                 </div>
-               </div>
- 
-             </div>
+                  <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" onChange={handleLogoChange} className="hidden" />
+                  
+                 {/* Logo Scale Slider */}
+                 {(logoUrl || logoPreview) && (
+                   <div className="mt-3 pt-3 border-t border-slate-800">
+                     <div className="flex items-center justify-between mb-1.5">
+                       <label className="text-[11px] text-slate-500">Logo Size</label>
+                       <span className="text-[11px] text-slate-400 font-medium">{logoScale}%</span>
+                     </div>
+                     <input
+                       type="range"
+                       min={MIN_LOGO_SCALE}
+                       max={MAX_LOGO_SCALE}
+                       value={logoScale}
+                       onChange={(e) => setLogoScale(Number(e.target.value))}
+                       className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                     />
+                     <div className="flex justify-between text-[10px] text-slate-600 mt-1">
+                       <span>Small</span>
+                       <span>Large</span>
+                     </div>
+                   </div>
+                 )}
+                </div>
+              </div>
+
+              {/* Advanced Settings */}
+              <div className="bg-slate-900/50 border border-slate-800 rounded overflow-hidden">
+                <button
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                  className="w-full px-2.5 py-1.5 border-b border-slate-800 bg-slate-900/80 flex items-center justify-between hover:bg-slate-800/50 transition-colors"
+                >
+                  <span className="text-xs font-medium text-slate-400">Advanced Settings</span>
+                  <svg 
+                    className={`w-4 h-4 text-slate-500 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {showAdvanced && (
+                  <div className="p-2 space-y-3">
+                    {/* Car Scale */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-[11px] text-slate-500">Car Size</label>
+                        <span className="text-[11px] text-slate-400 font-medium">{carScale}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={MIN_CAR_SCALE}
+                        max={MAX_CAR_SCALE}
+                        value={carScale}
+                        onChange={(e) => setCarScale(Number(e.target.value))}
+                        className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      />
+                      <div className="flex justify-between text-[10px] text-slate-600 mt-1">
+                        <span>Smaller</span>
+                        <span>Larger</span>
+                      </div>
+                    </div>
+
+                    {/* Shadow Intensity */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-[11px] text-slate-500">Shadow Intensity</label>
+                        <span className="text-[11px] text-slate-400 font-medium">{shadowIntensity}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        value={shadowIntensity}
+                        onChange={(e) => setShadowIntensity(Number(e.target.value))}
+                        className="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                      />
+                      <div className="flex justify-between text-[10px] text-slate-600 mt-1">
+                        <span>None</span>
+                        <span>Full</span>
+                      </div>
+                    </div>
+
+                    {/* Reset Button */}
+                    <div className="flex justify-between items-center pt-2 border-t border-slate-800">
+                      <p className="text-[10px] text-slate-600">
+                        Auto-saved
+                      </p>
+                      <button
+                        onClick={handleResetToDefaults}
+                        className="px-2 py-1 rounded text-[10px] font-medium transition-colors bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300 border border-slate-700"
+                      >
+                        Reset to defaults
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+            </div>
  
              {/* Right Sidebar */}
              <div className="col-span-4 space-y-2">
@@ -471,28 +657,50 @@
                <p className="text-xs text-slate-500">No logo</p>
              )}
            </div>
-           <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" onChange={handleLogoChange} className="hidden" />
-           <div className="flex gap-2">
-             <button
-               onClick={() => fileInputRef.current?.click()}
-               className="flex-1 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
-             >
-               {logoPreview ? 'Change' : 'Select'}
-             </button>
-             {logoPreview && (
-               <button
-                 onClick={handleUploadLogo}
-                 disabled={uploading}
-                 className="flex-1 py-2 bg-cyan-600 rounded text-sm disabled:opacity-50"
-               >
-                 {uploading ? 'Uploading...' : 'Upload'}
-               </button>
-             )}
-           </div>
-         </div>
- 
-         <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-4">
-           <p className="text-sm text-slate-400 mb-3">Backgrounds</p>
+          <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" onChange={handleLogoChange} className="hidden" />
+          <div className="flex gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex-1 py-2 bg-slate-800 border border-slate-700 rounded text-sm"
+            >
+              {logoPreview ? 'Change' : 'Select'}
+            </button>
+            {logoPreview && (
+              <button
+                onClick={handleUploadLogo}
+                disabled={uploading}
+                className="flex-1 py-2 bg-cyan-600 rounded text-sm disabled:opacity-50"
+              >
+                {uploading ? 'Uploading...' : 'Upload'}
+              </button>
+            )}
+          </div>
+          
+          {/* Mobile Logo Scale Slider */}
+          {(logoUrl || logoPreview) && (
+            <div className="mt-4 pt-4 border-t border-slate-800">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm text-slate-500">Logo Size</label>
+                <span className="text-sm text-slate-400 font-medium">{logoScale}%</span>
+              </div>
+              <input
+                type="range"
+                min={MIN_LOGO_SCALE}
+                max={MAX_LOGO_SCALE}
+                value={logoScale}
+                onChange={(e) => setLogoScale(Number(e.target.value))}
+                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+              />
+              <div className="flex justify-between text-xs text-slate-600 mt-1">
+                <span>Small</span>
+                <span>Large</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-4">
+          <p className="text-sm text-slate-400 mb-3">Backgrounds</p>
            <p className="text-xs text-slate-500 mb-2">Built-in</p>
            <div className="flex gap-2 mb-3">
              {BACKGROUNDS.map((bg) => (
@@ -538,16 +746,90 @@
                ))}
              </div>
            )}
-           <button
-             onClick={handleSaveSettings}
-             disabled={saving}
-             className="w-full py-2 bg-slate-800 border border-slate-700 rounded text-sm"
-           >
-             {saving ? 'Saving...' : 'Save default'}
-           </button>
-         </div>
- 
-       </div>
-     </div>
-   );
- }
+          <button
+            onClick={handleSaveSettings}
+            disabled={saving}
+            className="w-full py-2 bg-slate-800 border border-slate-700 rounded text-sm"
+          >
+            {saving ? 'Saving...' : 'Save default'}
+          </button>
+        </div>
+
+        {/* Mobile Advanced Settings */}
+        <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden mb-4">
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="w-full p-4 flex items-center justify-between"
+          >
+            <span className="text-sm text-slate-400">Advanced Settings</span>
+            <svg 
+              className={`w-5 h-5 text-slate-500 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {showAdvanced && (
+            <div className="px-4 pb-4 space-y-4 border-t border-slate-800 pt-4">
+              {/* Car Scale */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm text-slate-500">Car Size</label>
+                  <span className="text-sm text-slate-400 font-medium">{carScale}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={MIN_CAR_SCALE}
+                  max={MAX_CAR_SCALE}
+                  value={carScale}
+                  onChange={(e) => setCarScale(Number(e.target.value))}
+                  className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                />
+                <div className="flex justify-between text-xs text-slate-600 mt-1">
+                  <span>Smaller</span>
+                  <span>Larger</span>
+                </div>
+              </div>
+
+              {/* Shadow Intensity */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm text-slate-500">Shadow Intensity</label>
+                  <span className="text-sm text-slate-400 font-medium">{shadowIntensity}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={shadowIntensity}
+                  onChange={(e) => setShadowIntensity(Number(e.target.value))}
+                  className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                />
+                <div className="flex justify-between text-xs text-slate-600 mt-1">
+                  <span>None</span>
+                  <span>Full</span>
+                </div>
+              </div>
+
+              {/* Reset Button */}
+              <div className="flex justify-between items-center pt-3 border-t border-slate-800">
+                <p className="text-xs text-slate-600">
+                  Auto-saved
+                </p>
+                <button
+                  onClick={handleResetToDefaults}
+                  className="px-3 py-1.5 rounded text-xs font-medium transition-colors bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300 border border-slate-700"
+                >
+                  Reset to defaults
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+      </div>
+    </div>
+  );
+}

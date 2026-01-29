@@ -12,9 +12,9 @@ const EXPORT_HEIGHT = 1080;
 const EXPORT_QUALITY = 92;
 
 const LOGO_WIDTH_PERCENT = 0.10;
-const TARGET_WIDTH_PCT = 0.68;
-const MIN_WIDTH_PCT = 0.58;
-const MAX_WIDTH_PCT = 0.78;
+const TARGET_WIDTH_PCT = 0.82;  // Target car width: 82% of frame (was 68%)
+const MIN_WIDTH_PCT = 0.72;     // Minimum: 72% (was 58%)
+const MAX_WIDTH_PCT = 0.90;     // Maximum: 90% (was 78%)
 const FLOOR_Y_PCT = 0.84;
 
 // Background templates (complete room images)
@@ -46,6 +46,10 @@ async function removeBackground(imageBuffer: Buffer): Promise<Buffer> {
 
   if (!response.ok) {
     const errorText = await response.text();
+    // Check for invalid file type error
+    if (errorText.includes('invalid_file_type')) {
+      throw new Error('Invalid file type. Please upload a JPG, PNG, WebP, AVIF, or HEIC image.');
+    }
     throw new Error(`Remove.bg API error: ${response.status} - ${errorText}`);
   }
 
@@ -75,6 +79,7 @@ interface SubjectAnalysis {
   softWidthPct: number;
   softHeightPct: number;
   bottomTouchRatio: number;
+  opaqueRatio: number;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -106,6 +111,7 @@ async function analyzeSubjectBounds(imageBuffer: Buffer): Promise<SubjectAnalysi
     let solid: Bounds = { minX: width, maxX: 0, minY: height, maxY: 0, valid: false };
     let softPixels = 0;
     let solidPixels = 0;
+    let opaquePixels = 0;
 
     const bottomBandStart = Math.max(0, height - Math.round(height * 0.02));
     const bottomSoftColumns = new Uint8Array(width);
@@ -130,6 +136,9 @@ async function analyzeSubjectBounds(imageBuffer: Buffer): Promise<SubjectAnalysi
           if (x > solid.maxX) solid.maxX = x;
           if (y < solid.minY) solid.minY = y;
           if (y > solid.maxY) solid.maxY = y;
+        }
+        if (alpha > 250) {
+          opaquePixels++;
         }
       }
     }
@@ -157,6 +166,7 @@ async function analyzeSubjectBounds(imageBuffer: Buffer): Promise<SubjectAnalysi
       softWidthPct,
       softHeightPct,
       bottomTouchRatio,
+      opaqueRatio: opaquePixels / totalPixels,
     };
   } catch {
     return {
@@ -170,22 +180,60 @@ async function analyzeSubjectBounds(imageBuffer: Buffer): Promise<SubjectAnalysi
       softWidthPct: 1,
       softHeightPct: 1,
       bottomTouchRatio: 1,
+      opaqueRatio: 1,
     };
   }
 }
 
-function classifyPhotoMode(analysis: SubjectAnalysis): PhotoMode {
-  const nearFullFrame = analysis.softWidthPct > 0.95 && analysis.softHeightPct > 0.95;
-  const largeCoverage = analysis.softCoverage > 0.9 || analysis.solidCoverage > 0.85;
-  const tallSubject = analysis.softHeightPct > 0.75;
-  const wideSubject = analysis.softWidthPct > 0.9;
-  const heavyBottomTouch = analysis.bottomTouchRatio > 0.6;
+interface ClassificationResult {
+  mode: PhotoMode;
+  interiorHint: boolean;
+}
 
-  if (!analysis.hasAlpha) return 'interior';
-  if (!analysis.soft.valid || !analysis.solid.valid) return 'interior';
-  if (nearFullFrame && largeCoverage) return 'interior';
-  if (tallSubject || wideSubject || heavyBottomTouch) return 'interior';
-  return 'exterior';
+/**
+ * Classify photo based on PRIMARY SUBJECT, not just presence of interior elements.
+ * 
+ * EXTERIOR: Exterior body panels visible AND car occupies majority of frame.
+ * INTERIOR: Dashboard, steering wheel, seats, or cabin dominate >50% of the image
+ *           AND exterior body panels are minimal or not visible.
+ * 
+ * Studio background is applied by default for exterior images, even if interior
+ * is visible through windows. Interior detection is advisory, not blocking.
+ */
+function classifyPhotoMode(analysis: SubjectAnalysis): ClassificationResult {
+  // Advisory hint: detect if some interior-like characteristics are present
+  // (high opacity + high coverage could indicate interior elements visible)
+  const hasInteriorCharacteristics = analysis.opaqueRatio > 0.85 && analysis.softCoverage > 0.85;
+  
+  // Only classify as INTERIOR for very clear interior shots:
+  // - No alpha channel at all (background removal couldn't separate subject)
+  // - Invalid bounds (couldn't detect a distinct subject at all)
+  // - Nearly fully opaque (>99.5%) AND fills almost entire frame (>96%)
+  //   This catches true interior shots where the cabin fills the entire view
+  const fullyOpaque = analysis.opaqueRatio > 0.995;
+  const almostFullFrame = analysis.softWidthPct > 0.96 && analysis.softHeightPct > 0.96;
+  const extremelyCovered = analysis.softCoverage > 0.99;
+  
+  // Clear interior: no usable alpha channel
+  if (!analysis.hasAlpha) {
+    return { mode: 'interior', interiorHint: true };
+  }
+  
+  // Clear interior: couldn't detect any distinct subject bounds
+  if (!analysis.soft.valid || !analysis.solid.valid) {
+    return { mode: 'interior', interiorHint: true };
+  }
+  
+  // Clear interior: image is almost entirely opaque AND fills nearly the entire frame
+  // This is the strict threshold for true interior shots (cabin view)
+  if (fullyOpaque && almostFullFrame && extremelyCovered) {
+    return { mode: 'interior', interiorHint: true };
+  }
+  
+  // Default to EXTERIOR - studio background will be applied
+  // Even if some interior elements are visible (through windows), treat as exterior
+  // if the car body is the primary subject
+  return { mode: 'exterior', interiorHint: hasInteriorCharacteristics };
 }
 
 // Load background template image
@@ -232,6 +280,33 @@ async function createRoomBackground(
 const DEBUG_OVERLAY = process.env.NODE_ENV !== 'production' && process.env.PROCESS_DEBUG_OVERLAY === '1';
 const DEBUG_MODE = process.env.NODE_ENV !== 'production' && process.env.PROCESS_DEBUG === '1';
 
+// Adjust shadow intensity by modifying alpha values of semi-transparent pixels
+async function adjustShadowIntensity(imageBuffer: Buffer, intensity: number): Promise<Buffer> {
+  if (intensity >= 100) return imageBuffer; // No adjustment needed
+  
+  const { data, info } = await sharp(imageBuffer)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  
+  const { width, height, channels } = info;
+  const intensityFactor = intensity / 100;
+  
+  // Modify alpha values: shadow pixels (low alpha) get reduced more
+  for (let i = 0; i < data.length; i += channels) {
+    const alpha = data[i + 3];
+    // Only adjust semi-transparent pixels (shadows), not fully opaque (car body)
+    if (alpha > 0 && alpha < 240) {
+      // Scale shadow alpha by intensity factor
+      data[i + 3] = Math.round(alpha * intensityFactor);
+    }
+  }
+  
+  return sharp(data, { raw: { width, height, channels } })
+    .png()
+    .toBuffer();
+}
+
 // Pad the cutout buffer to preserve shadows at edges (especially bottom)
 async function padCutoutForShadows(cutoutBuffer: Buffer): Promise<{ paddedBuffer: Buffer; padding: { top: number; bottom: number; left: number; right: number } }> {
   const meta = await sharp(cutoutBuffer).metadata();
@@ -274,13 +349,20 @@ async function compositeImage(
   cutoutBuffer: Buffer,
   backgroundTemplate: string,
   logoBuffer: Buffer | null,
-  backgroundBuffer: Buffer | null
-): Promise<{ buffer: Buffer; mode: PhotoMode }> {
+  backgroundBuffer: Buffer | null,
+  logoScale: number = LOGO_WIDTH_PERCENT,
+  carScale: number = TARGET_WIDTH_PCT,
+  shadowIntensity: number = 100,
+  isReprocessed: boolean = false
+): Promise<{ buffer: Buffer; mode: PhotoMode; interiorHint: boolean }> {
   const analysis = await analyzeSubjectBounds(cutoutBuffer);
-  const mode = classifyPhotoMode(analysis);
+  const { mode, interiorHint } = classifyPhotoMode(analysis);
+
+  // Step 0: Adjust shadow intensity if needed
+  const shadowAdjustedCutout = await adjustShadowIntensity(cutoutBuffer, shadowIntensity);
 
   // Step 1: Pad the cutout to ensure shadows aren't clipped
-  const { paddedBuffer, padding } = await padCutoutForShadows(cutoutBuffer);
+  const { paddedBuffer, padding } = await padCutoutForShadows(shadowAdjustedCutout);
   const paddedMeta = await sharp(paddedBuffer).metadata();
   const paddedWidth = paddedMeta.width || analysis.bufferWidth;
   const paddedHeight = paddedMeta.height || analysis.bufferHeight;
@@ -308,7 +390,15 @@ async function compositeImage(
   const softCenterX = soft.minX + softWidth / 2;
   const softCenterY = soft.minY + softHeight / 2;
 
-  const baseCanvasWidth = Math.max(EXPORT_WIDTH, Math.round(solidWidth / TARGET_WIDTH_PCT));
+  // Use carScale as the target width percentage
+  const targetPct = carScale;
+  const minPct = Math.max(0.50, targetPct - 0.12); // Allow 12% smaller than target
+  const maxPct = isReprocessed ? 0.98 : Math.min(0.95, targetPct + 0.08); // Allow larger for reprocessed
+
+  // For reprocessed images, don't force minimum canvas size - calculate based purely on car
+  const baseCanvasWidth = isReprocessed 
+    ? Math.round(solidWidth / targetPct)
+    : Math.max(EXPORT_WIDTH, Math.round(solidWidth / targetPct));
   const baseCanvasHeight = Math.round(baseCanvasWidth * (9 / 16));
   const canvasWidth = baseCanvasWidth;
   const canvasHeight = baseCanvasHeight;
@@ -317,10 +407,10 @@ async function compositeImage(
   let widthPct = solidWidth / canvasWidth;
 
   if (mode === 'exterior') {
-    if (widthPct < MIN_WIDTH_PCT) {
-      scale = MIN_WIDTH_PCT / widthPct;
-    } else if (widthPct > MAX_WIDTH_PCT) {
-      scale = MAX_WIDTH_PCT / widthPct;
+    if (widthPct < minPct) {
+      scale = minPct / widthPct;
+    } else if (widthPct > maxPct) {
+      scale = maxPct / widthPct;
     }
 
     const floorY = Math.round(canvasHeight * FLOOR_Y_PCT);
@@ -337,6 +427,10 @@ async function compositeImage(
         mode,
         widthPct: Number(widthPct.toFixed(3)),
         scale: Number(scale.toFixed(3)),
+        hasAlpha: analysis.hasAlpha,
+        opaqueRatio: Number(analysis.opaqueRatio.toFixed(3)),
+        bboxWidthPct: Number(analysis.softWidthPct.toFixed(3)),
+        bboxHeightPct: Number(analysis.softHeightPct.toFixed(3)),
       });
     }
 
@@ -366,18 +460,18 @@ async function compositeImage(
 
     if (logoBuffer) {
       try {
-        const logoTargetWidth = Math.round(canvasWidth * LOGO_WIDTH_PERCENT);
+        const logoTargetWidth = Math.round(canvasWidth * logoScale);
         const logoPadding = Math.round(canvasWidth * 0.012);
         const logoMeta = await sharp(logoBuffer).metadata();
-        const logoScale = logoTargetWidth / (logoMeta.width || 500);
-        const logoHeight = Math.round((logoMeta.height || 200) * logoScale);
+        const logoScaleRatio = logoTargetWidth / (logoMeta.width || 500);
+        const logoHeight = Math.round((logoMeta.height || 200) * logoScaleRatio);
 
         composites.push({
           input: await sharp(logoBuffer)
             .resize(logoTargetWidth, logoHeight, { kernel: 'lanczos3' })
             .toBuffer(),
           left: canvasWidth - logoTargetWidth - logoPadding,
-          top: canvasHeight - logoHeight - logoPadding,
+          top: logoPadding, // Top right corner
         });
       } catch (e) {
         console.error('Logo error:', e);
@@ -423,7 +517,7 @@ async function compositeImage(
       })
       .toBuffer();
 
-    return { buffer: finalExport, mode };
+    return { buffer: finalExport, mode, interiorHint };
   }
 
   // Interior mode: no showroom floor/wall, minimal cropping
@@ -447,6 +541,10 @@ async function compositeImage(
       mode,
       widthPct: Number(widthPct.toFixed(3)),
       scale: Number(scale.toFixed(3)),
+      hasAlpha: analysis.hasAlpha,
+      opaqueRatio: Number(analysis.opaqueRatio.toFixed(3)),
+      bboxWidthPct: Number(analysis.softWidthPct.toFixed(3)),
+      bboxHeightPct: Number(analysis.softHeightPct.toFixed(3)),
     });
   }
 
@@ -473,18 +571,18 @@ async function compositeImage(
 
   if (logoBuffer) {
     try {
-      const logoTargetWidth = Math.round(canvasWidth * LOGO_WIDTH_PERCENT);
+      const logoTargetWidth = Math.round(canvasWidth * logoScale);
       const logoPadding = Math.round(canvasWidth * 0.012);
       const logoMeta = await sharp(logoBuffer).metadata();
-      const logoScale = logoTargetWidth / (logoMeta.width || 500);
-      const logoHeight = Math.round((logoMeta.height || 200) * logoScale);
+      const logoScaleRatio = logoTargetWidth / (logoMeta.width || 500);
+      const logoHeight = Math.round((logoMeta.height || 200) * logoScaleRatio);
 
       composites.push({
         input: await sharp(logoBuffer)
           .resize(logoTargetWidth, logoHeight, { kernel: 'lanczos3' })
           .toBuffer(),
         left: canvasWidth - logoTargetWidth - logoPadding,
-        top: canvasHeight - logoHeight - logoPadding,
+        top: logoPadding, // Top right corner
       });
     } catch (e) {
       console.error('Logo error:', e);
@@ -522,7 +620,7 @@ async function compositeImage(
     })
     .toBuffer();
 
-  return { buffer: finalExport, mode };
+  return { buffer: finalExport, mode, interiorHint };
 }
 
 export async function POST(request: NextRequest) {
@@ -555,7 +653,33 @@ export async function POST(request: NextRequest) {
     // Validate background template or load user background
     let validBackground = DEFAULT_BACKGROUND;
     let userBackgroundBuffer: Buffer | null = null;
+    let logoScalePercent = LOGO_WIDTH_PERCENT; // Default 10%
+    let carScalePercent = TARGET_WIDTH_PCT; // Default 82%
+    let shadowIntensity = 100; // Default 100%
     const adminClient = createAdminClient();
+
+    // Load user's preferences from profile
+    try {
+      const { data: profile } = await adminClient
+        .from('profiles')
+        .select('logo_scale, car_scale, shadow_intensity')
+        .eq('id', user.id)
+        .maybeSingle();
+      
+      if (profile?.logo_scale) {
+        // Convert from percentage (5-20) to decimal (0.05-0.20)
+        logoScalePercent = profile.logo_scale / 100;
+      }
+      if (profile?.car_scale) {
+        // Convert from percentage (60-95) to decimal (0.60-0.95)
+        carScalePercent = profile.car_scale / 100;
+      }
+      if (profile?.shadow_intensity !== null && profile?.shadow_intensity !== undefined) {
+        shadowIntensity = profile.shadow_intensity;
+      }
+    } catch {
+      // Use default scales
+    }
 
     if (backgroundTemplate.startsWith(USER_BACKGROUND_PREFIX)) {
       const storagePath = backgroundTemplate.replace(USER_BACKGROUND_PREFIX, '');
@@ -601,6 +725,17 @@ export async function POST(request: NextRequest) {
         .toBuffer()) as Buffer;
     }
 
+    // Check if image is already processed (16:9 aspect ratio)
+    const originalMeta = await sharp(originalBuffer).metadata();
+    const originalWidth = originalMeta.width || 1920;
+    const originalHeight = originalMeta.height || 1080;
+    const aspectRatio = originalWidth / originalHeight;
+    const is16by9 = Math.abs(aspectRatio - (16/9)) < 0.05; // Within 5% tolerance
+    
+    if (is16by9 && DEBUG_MODE) {
+      console.log('Detected already-processed image (16:9), preserving car size');
+    }
+
     // Step 1: Upload original to Supabase Storage (use outputId to match output filename)
     const { error: originalUploadError } = await adminClient.storage
       .from('originals')
@@ -632,11 +767,31 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 4: Composite final image
-    const { buffer: finalBuffer, mode } = await compositeImage(
+    let effectiveCarScale = carScalePercent;
+    
+    // If image is already 16:9 (already processed), calculate and preserve car's current scale
+    if (is16by9) {
+      // Analyze the cutout to get the car's solid width
+      const cutoutAnalysis = await analyzeSubjectBounds(cutoutBuffer);
+      const carSolidWidth = Math.max(1, cutoutAnalysis.solid.maxX - cutoutAnalysis.solid.minX + 1);
+      // Calculate what percentage of the original image the car occupied
+      const carPctOfOriginal = carSolidWidth / originalWidth;
+      // Use this as the target, ensuring it's within reasonable bounds
+      effectiveCarScale = Math.min(0.95, Math.max(0.60, carPctOfOriginal));
+      if (DEBUG_MODE) {
+        console.log('Reprocessed image:', { carSolidWidth, originalWidth, carPctOfOriginal, effectiveCarScale });
+      }
+    }
+    
+    const { buffer: finalBuffer, mode, interiorHint } = await compositeImage(
       cutoutBuffer,
       validBackground,
       logoBuffer,
-      userBackgroundBuffer
+      userBackgroundBuffer,
+      logoScalePercent,
+      effectiveCarScale,
+      shadowIntensity,
+      is16by9
     );
 
     // Step 5: Upload final to outputs (use outputId for unique filename)
@@ -656,7 +811,7 @@ export async function POST(request: NextRequest) {
       console.log('Filename:', `${outputId}.jpg`);
     }
 
-    return NextResponse.json({ id: outputId, success: true, mode });
+    return NextResponse.json({ id: outputId, success: true, mode, interiorHint });
   } catch (error) {
     console.error('Processing error:', error);
     return NextResponse.json(

@@ -47,7 +47,7 @@ export default async function PaidLayout({
     } else {
       try {
         const admin = createAdminClient();
-        const stripe = new Stripe(stripeSecretKey, { apiVersion: '2023-10-16' });
+        const stripe = new Stripe(stripeSecretKey, { apiVersion: '2025-12-18.acacia' });
         const subscriptions = await stripe.subscriptions.list({
           customer: profile.stripe_customer_id,
           status: 'all',
