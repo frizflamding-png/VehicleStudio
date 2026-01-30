@@ -141,6 +141,7 @@ export default function Home() {
                 afterSrc="/templates/studio-white.jpg"
                 beforeAlt="Vehicle photo before studio background"
                 afterAlt="Vehicle photo after studio background"
+                priority
               />
             </div>
           </div>

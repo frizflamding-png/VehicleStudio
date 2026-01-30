@@ -3,29 +3,31 @@
  import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
  import Image from 'next/image';
  
- type BeforeAfterSliderProps = {
-   beforeSrc: string;
-   afterSrc: string;
-   beforeAlt?: string;
-   afterAlt?: string;
-   initial?: number;
-   autoDemo?: boolean;
+type BeforeAfterSliderProps = {
+  beforeSrc: string;
+  afterSrc: string;
+  beforeAlt?: string;
+  afterAlt?: string;
+  initial?: number;
+  autoDemo?: boolean;
   mode?: 'split' | 'overlay';
   fit?: 'cover' | 'contain';
- };
+  priority?: boolean;
+};
  
  const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
  
- export default function BeforeAfterSlider({
-   beforeSrc,
-   afterSrc,
-   beforeAlt = 'Before image',
-   afterAlt = 'After image',
-   initial = 50,
-   autoDemo = true,
+export default function BeforeAfterSlider({
+  beforeSrc,
+  afterSrc,
+  beforeAlt = 'Before image',
+  afterAlt = 'After image',
+  initial = 50,
+  autoDemo = true,
   mode = 'split',
   fit = 'cover',
- }: BeforeAfterSliderProps) {
+  priority = false,
+}: BeforeAfterSliderProps) {
    const containerRef = useRef<HTMLDivElement>(null);
   const [value, setValue] = useState(() => clamp(initial, 0, 100));
   const [isDragging, setIsDragging] = useState(false);
@@ -154,7 +156,7 @@
               fill
               sizes="(max-width: 1024px) 100vw, 960px"
               className={imageFitClass}
-              priority={false}
+              priority={priority}
             />
             <div
               className="absolute inset-0"
@@ -166,7 +168,7 @@
                 fill
                 sizes="(max-width: 1024px) 100vw, 960px"
                 className={imageFitClass}
-                priority={false}
+                priority={priority}
               />
             </div>
             <div
@@ -186,7 +188,7 @@
               fill
               sizes="(max-width: 1024px) 100vw, 960px"
               className={imageFitClass}
-              priority={false}
+              priority={priority}
             />
 
             <div
@@ -199,7 +201,7 @@
                 fill
                 sizes="(max-width: 1024px) 100vw, 960px"
                 className={imageFitClass}
-                priority={false}
+                priority={priority}
               />
             </div>
 
