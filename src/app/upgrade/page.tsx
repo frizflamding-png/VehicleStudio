@@ -15,6 +15,7 @@ export default function UpgradePage() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'reset'>('signup');
   const [hasCustomerId, setHasCustomerId] = useState(false);
+  const [subscription, setSubscription] = useState<{ status: string | null; priceId: string | null } | null>(null);
   const router = useRouter();
 
   const supabase = useMemo(() => {
@@ -53,15 +54,20 @@ export default function UpgradePage() {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('stripe_subscription_status, stripe_customer_id')
+        .select('stripe_subscription_status, stripe_customer_id, plan')
         .eq('id', user.id)
-        .maybeSingle<{ stripe_subscription_status: string | null; stripe_customer_id: string | null }>();
+        .maybeSingle<{ stripe_subscription_status: string | null; stripe_customer_id: string | null; plan: string | null }>();
 
-      const status = profile?.stripe_subscription_status ?? '';
+      const status = profile?.stripe_subscription_status ?? null;
+      const priceId = profile?.plan ?? null;
       const isPaid = status === 'active' || status === 'trialing';
+      
       setHasCustomerId(Boolean(profile?.stripe_customer_id));
+      setSubscription({ status, priceId });
 
-      if (isPaid) {
+      // Only redirect to studio if coming from paywall and already paid
+      // Allow users to stay on upgrade page to switch plans
+      if (isPaid && reason === 'paywall') {
         router.replace('/studio');
         return;
       }
@@ -69,7 +75,7 @@ export default function UpgradePage() {
     };
 
     checkStatus().catch(() => setChecking(false));
-  }, [router, supabase]);
+  }, [router, supabase, reason]);
 
   // Manual sync button (for debugging "I paid but still blocked")
   const handleSync = async () => {
@@ -159,7 +165,7 @@ export default function UpgradePage() {
           </div>
         )}
 
-        <MarketingPricingCard onSubscribe={openSignUp} />
+        <MarketingPricingCard onSubscribe={openSignUp} subscription={subscription} />
 
         {/* Account link */}
         <div className="mt-8 pt-6 border-t border-slate-800 text-center">

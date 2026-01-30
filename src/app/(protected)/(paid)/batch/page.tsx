@@ -10,9 +10,9 @@
  const MAX_BATCH_SIZE = 50;
  const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/avif', 'image/heic', 'image/heif'];
  
- const BACKGROUNDS = [
-   { id: 'showroom-grey', label: 'Showroom Grey', preview: '/templates/backgrounds/showroom-grey.jpg' },
- ];
+const BACKGROUNDS = [
+  { id: 'showroom-grey', label: 'Showroom Grey', preview: '/templates/backgrounds/showroom-grey.jpg' },
+];
  const USER_BACKGROUND_PREFIX = 'user:';
  const USER_BACKGROUNDS_BUCKET = 'user-backgrounds';
  

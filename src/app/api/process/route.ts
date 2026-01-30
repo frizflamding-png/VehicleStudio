@@ -23,6 +23,83 @@ const DEFAULT_BACKGROUND = 'showroom-grey';
 const USER_BACKGROUND_PREFIX = 'user:';
 const USER_BACKGROUNDS_BUCKET = 'user-backgrounds';
 
+// Padding info for remove.bg pre-processing
+interface PaddingInfo {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+  originalWidth: number;
+  originalHeight: number;
+}
+
+// Add padding to image before remove.bg to give shadow more room
+async function padImageForRemoveBg(imageBuffer: Buffer): Promise<{ buffer: Buffer; padding: PaddingInfo }> {
+  const meta = await sharp(imageBuffer).metadata();
+  const width = meta.width || 1000;
+  const height = meta.height || 1000;
+  
+  // Minimal padding - just enough to prevent shadow clipping at edges
+  const padTop = Math.round(height * 0.02);
+  const padBottom = Math.round(height * 0.08); // Extra bottom padding for shadow
+  const padLeft = Math.round(width * 0.02);
+  const padRight = Math.round(width * 0.02);
+  
+  const padding: PaddingInfo = {
+    top: padTop,
+    bottom: padBottom,
+    left: padLeft,
+    right: padRight,
+    originalWidth: width,
+    originalHeight: height,
+  };
+  
+  // Extend with neutral gray (remove.bg needs background context)
+  const buffer = await sharp(imageBuffer)
+    .extend({
+      top: padTop,
+      bottom: padBottom,
+      left: padLeft,
+      right: padRight,
+      background: { r: 128, g: 128, b: 128, alpha: 1 },
+    })
+    .jpeg({ quality: 95 })
+    .toBuffer();
+  
+  return { buffer, padding };
+}
+
+// Crop remove.bg output to remove excess padding, keeping shadow room
+async function cropRemoveBgOutput(cutoutBuffer: Buffer, padding: PaddingInfo): Promise<Buffer> {
+  const meta = await sharp(cutoutBuffer).metadata();
+  const width = meta.width || 1000;
+  const height = meta.height || 1000;
+  
+  // Remove almost all padding, keeping just a bit for shadow bleed
+  // Keep minimal top/side padding, keep some bottom for shadow
+  const keepTop = Math.round(padding.top * 0.1);    // Keep 10% of top
+  const keepBottom = Math.round(padding.bottom * 0.5); // Keep 50% of bottom for shadow
+  const keepLeft = Math.round(padding.left * 0.1);  // Keep 10% of left
+  const keepRight = Math.round(padding.right * 0.1); // Keep 10% of right
+  
+  const cropLeft = padding.left - keepLeft;
+  const cropTop = padding.top - keepTop;
+  const cropWidth = width - (padding.left - keepLeft) - (padding.right - keepRight);
+  const cropHeight = height - (padding.top - keepTop) - (padding.bottom - keepBottom);
+  
+  console.log('[REMOVE_BG] Cropping:', { cropLeft, cropTop, cropWidth, cropHeight, keepBottom });
+  
+  return sharp(cutoutBuffer)
+    .extract({
+      left: Math.max(0, cropLeft),
+      top: Math.max(0, cropTop),
+      width: Math.min(cropWidth, width - cropLeft),
+      height: Math.min(cropHeight, height - cropTop),
+    })
+    .png()
+    .toBuffer();
+}
+
 // Remove background - preserve FULL original resolution
 async function removeBackground(imageBuffer: Buffer): Promise<Buffer> {
   const apiKey = process.env.REMOVE_BG_API_KEY;
@@ -30,8 +107,14 @@ async function removeBackground(imageBuffer: Buffer): Promise<Buffer> {
     throw new Error('REMOVE_BG_API_KEY not configured');
   }
 
+  // Add padding to give remove.bg more room for shadows
+  const { buffer: paddedBuffer, padding } = await padImageForRemoveBg(imageBuffer);
+  console.log('[REMOVE_BG] Padded image size:', paddedBuffer.length);
+
   const formData = new FormData();
-  formData.append('image_file', new Blob([new Uint8Array(imageBuffer)]), 'image.jpg');
+  // Specify MIME type explicitly to ensure remove.bg accepts the file
+  const blob = new Blob([new Uint8Array(paddedBuffer)], { type: 'image/jpeg' });
+  formData.append('image_file', blob, 'image.jpg');
   formData.append('size', 'full'); // FULL resolution - no downscaling
   formData.append('add_shadow', 'true');
   formData.append('format', 'png'); // PNG for lossless alpha
@@ -46,6 +129,11 @@ async function removeBackground(imageBuffer: Buffer): Promise<Buffer> {
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error('[REMOVE_BG] Error response:', {
+      status: response.status,
+      error: errorText,
+      bufferSize: imageBuffer.length,
+    });
     // Check for invalid file type error
     if (errorText.includes('invalid_file_type')) {
       throw new Error('Invalid file type. Please upload a JPG, PNG, WebP, AVIF, or HEIC image.');
@@ -54,7 +142,13 @@ async function removeBackground(imageBuffer: Buffer): Promise<Buffer> {
   }
 
   const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  const rawCutout = Buffer.from(arrayBuffer);
+  
+  // Crop out the excess padding we added, keeping shadow room
+  const croppedCutout = await cropRemoveBgOutput(rawCutout, padding);
+  console.log('[REMOVE_BG] Cropped cutout size:', croppedCutout.length);
+  
+  return croppedCutout;
 }
 
 // Analyze car bounding box for simple centering
@@ -307,23 +401,165 @@ async function adjustShadowIntensity(imageBuffer: Buffer, intensity: number): Pr
     .toBuffer();
 }
 
+// Soften shadow edges by extending shadows with a natural gradient fade
+// This fixes hard cut lines from remove.bg
+async function softenShadowEdges(buffer: Buffer): Promise<Buffer> {
+  const { data, info } = await sharp(buffer)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  
+  const { width, height, channels } = info;
+  const resultData = Buffer.from(data);
+  
+  const SHADOW_THRESHOLD = 200; // Alpha below this = shadow
+  const CAR_THRESHOLD = 230;    // Alpha above this = car body
+  const FADE_DISTANCE = 20;     // How far to extend the shadow fade
+  
+  // Step 1: Find the shadow boundary for each column
+  // The "shadow edge" is where shadow pixels suddenly become transparent
+  const shadowBottomRow = new Int32Array(width).fill(-1);
+  const shadowAlphaAtBottom = new Uint8Array(width);
+  
+  for (let x = 0; x < width; x++) {
+    // Scan from bottom up to find where shadow ends
+    for (let y = height - 1; y >= 0; y--) {
+      const idx = (y * width + x) * channels;
+      const alpha = data[idx + 3];
+      
+      // Found a shadow pixel
+      if (alpha > 5 && alpha < SHADOW_THRESHOLD) {
+        shadowBottomRow[x] = y;
+        shadowAlphaAtBottom[x] = alpha;
+        break;
+      }
+      // Found car body - stop searching this column
+      if (alpha >= CAR_THRESHOLD) {
+        break;
+      }
+    }
+  }
+  
+  // Step 2: Extend shadows downward with gradient fade
+  for (let x = 0; x < width; x++) {
+    const bottomY = shadowBottomRow[x];
+    if (bottomY < 0 || bottomY >= height - 2) continue;
+    
+    const baseAlpha = shadowAlphaAtBottom[x];
+    if (baseAlpha < 10) continue;
+    
+    // Get the color at the shadow edge
+    const baseIdx = (bottomY * width + x) * channels;
+    const r = data[baseIdx];
+    const g = data[baseIdx + 1];
+    const b = data[baseIdx + 2];
+    
+    // Extend shadow downward with fade
+    for (let dy = 1; dy <= FADE_DISTANCE && bottomY + dy < height; dy++) {
+      const fadeProgress = dy / FADE_DISTANCE;
+      // Smooth ease-out curve for natural fade
+      const fadeFactor = 1 - (fadeProgress * fadeProgress);
+      const newAlpha = Math.round(baseAlpha * fadeFactor * 0.7);
+      
+      if (newAlpha < 2) break;
+      
+      const targetIdx = ((bottomY + dy) * width + x) * channels;
+      const existingAlpha = resultData[targetIdx + 3];
+      
+      // Only extend into transparent areas
+      if (existingAlpha < newAlpha) {
+        resultData[targetIdx] = r;
+        resultData[targetIdx + 1] = g;
+        resultData[targetIdx + 2] = b;
+        resultData[targetIdx + 3] = newAlpha;
+      }
+    }
+    
+    // Also fade the original edge pixel for smoother transition
+    const edgeFade = 0.6;
+    resultData[baseIdx + 3] = Math.round(baseAlpha * edgeFade);
+  }
+  
+  // Step 3: Apply horizontal blur to smooth the extended shadow
+  const BLUR_RADIUS = 8;
+  const blurredData = Buffer.from(resultData);
+  
+  for (let y = 0; y < height; y++) {
+    for (let x = BLUR_RADIUS; x < width - BLUR_RADIUS; x++) {
+      const idx = (y * width + x) * channels;
+      const alpha = resultData[idx + 3];
+      
+      // Only blur shadow pixels
+      if (alpha === 0 || alpha >= SHADOW_THRESHOLD) continue;
+      
+      let alphaSum = 0;
+      let rSum = 0, gSum = 0, bSum = 0;
+      let count = 0;
+      
+      for (let dx = -BLUR_RADIUS; dx <= BLUR_RADIUS; dx++) {
+        const ni = (y * width + x + dx) * channels;
+        const na = resultData[ni + 3];
+        if (na > 0 && na < SHADOW_THRESHOLD) {
+          alphaSum += na;
+          rSum += resultData[ni];
+          gSum += resultData[ni + 1];
+          bSum += resultData[ni + 2];
+          count++;
+        }
+      }
+      
+      if (count > 0) {
+        blurredData[idx + 3] = Math.round(alphaSum / count);
+        blurredData[idx] = Math.round(rSum / count);
+        blurredData[idx + 1] = Math.round(gSum / count);
+        blurredData[idx + 2] = Math.round(bSum / count);
+      }
+    }
+  }
+  
+  // Step 4: Edge feathering for cutout borders
+  const featherPx = 8;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * channels;
+      const alpha = blurredData[idx + 3];
+      
+      if (alpha === 0) continue;
+      
+      const distFromEdge = Math.min(x, width - 1 - x, y, height - 1 - y);
+      
+      if (distFromEdge < featherPx) {
+        const falloff = distFromEdge / featherPx;
+        blurredData[idx + 3] = Math.round(alpha * falloff);
+      }
+    }
+  }
+  
+  return sharp(blurredData, { raw: { width, height, channels } })
+    .png()
+    .toBuffer();
+}
+
 // Pad the cutout buffer to preserve shadows at edges (especially bottom)
 async function padCutoutForShadows(cutoutBuffer: Buffer): Promise<{ paddedBuffer: Buffer; padding: { top: number; bottom: number; left: number; right: number } }> {
   const meta = await sharp(cutoutBuffer).metadata();
   const width = meta.width || 1000;
   const height = meta.height || 1000;
   
-  // Add generous padding to preserve any shadow bleed
+  // Minimal padding to preserve shadow bleed without making car too small
   // Bottom padding is most important for ground shadows
   const padding = {
-    top: Math.round(height * 0.05),      // 5% top
-    bottom: Math.round(height * 0.15),   // 15% bottom (for ground shadow)
-    left: Math.round(width * 0.05),      // 5% left
-    right: Math.round(width * 0.05),     // 5% right
+    top: Math.round(height * 0.03),      // 3% top
+    bottom: Math.round(height * 0.10),   // 10% bottom for ground shadow
+    left: Math.round(width * 0.03),      // 3% left
+    right: Math.round(width * 0.03),     // 3% right
   };
   
   const newWidth = width + padding.left + padding.right;
   const newHeight = height + padding.top + padding.bottom;
+  
+  // Soften shadow edges to remove hard cut lines from remove.bg
+  const softenedCutout = await softenShadowEdges(cutoutBuffer);
   
   // Create padded canvas with transparent background
   const paddedBuffer = await sharp({
@@ -335,7 +571,7 @@ async function padCutoutForShadows(cutoutBuffer: Buffer): Promise<{ paddedBuffer
     },
   })
     .composite([{
-      input: cutoutBuffer,
+      input: softenedCutout,
       left: padding.left,
       top: padding.top,
     }])
@@ -444,7 +680,22 @@ async function compositeImage(
     const carLeft = Math.round(canvasCenterX - scaledSolidCenterX);
     const carTop = Math.round(floorYClamped - scaledSolidBottom);
 
-    const clampedLeft = Math.max(0, Math.min(carLeft, canvasWidth - scaledWidth));
+    // Minimum edge margins (5% of canvas width) to prevent cars from appearing to hit walls
+    const minEdgeMargin = Math.round(canvasWidth * 0.05);
+    
+    // Calculate the car's visible edges after positioning
+    const scaledSolidLeft = carLeft + (solid.minX * scale);
+    const scaledSolidRight = carLeft + (solid.maxX * scale);
+    
+    // Adjust if car is too close to left or right edges
+    let adjustedCarLeft = carLeft;
+    if (scaledSolidLeft < minEdgeMargin) {
+      adjustedCarLeft = carLeft + (minEdgeMargin - scaledSolidLeft);
+    } else if (scaledSolidRight > canvasWidth - minEdgeMargin) {
+      adjustedCarLeft = carLeft - (scaledSolidRight - (canvasWidth - minEdgeMargin));
+    }
+
+    const clampedLeft = Math.max(0, Math.min(adjustedCarLeft, canvasWidth - scaledWidth));
     const clampedTop = Math.max(0, Math.min(carTop, canvasHeight - scaledHeight));
 
     const background = await createRoomBackground(backgroundTemplate, backgroundBuffer, canvasWidth, canvasHeight);
@@ -642,11 +893,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No image provided' }, { status: 400 });
     }
 
-    // Validate file type - only allow images
+    // Validate file type - allow by MIME type OR extension
     const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/avif', 'image/heic', 'image/heif'];
-    if (!allowedTypes.includes(imageFile.type)) {
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.avif', '.heic', '.heif'];
+    const fileExtension = imageFile.name.toLowerCase().slice(imageFile.name.lastIndexOf('.'));
+    const isValidType = allowedTypes.includes(imageFile.type) || allowedExtensions.includes(fileExtension);
+    
+    if (!isValidType) {
       return NextResponse.json({ 
-        error: 'Invalid file type. Please upload a JPG, PNG, WebP, or AVIF image.' 
+        error: 'Invalid file type. Please upload a JPG, PNG, WebP, AVIF, or HEIC image.' 
       }, { status: 400 });
     }
 
@@ -717,23 +972,60 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await imageFile.arrayBuffer();
     let originalBuffer: Buffer = Buffer.from(arrayBuffer);
 
-    // Convert AVIF/HEIC to JPEG for remove.bg compatibility
-    const needsConversion = ['image/avif', 'image/heic', 'image/heif'].includes(imageFile.type);
+    // Detect actual file type from magic bytes (don't trust MIME type or extension)
+    const detectFileType = (buffer: Buffer): string => {
+      if (buffer.length < 12) return 'unknown';
+      
+      // JPEG: starts with FF D8 FF
+      if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+        return 'jpeg';
+      }
+      // PNG: starts with 89 50 4E 47
+      if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+        return 'png';
+      }
+      // WebP: starts with RIFF....WEBP
+      if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+          buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
+        return 'webp';
+      }
+      // AVIF/HEIC/MP4: ftyp container (starts with ....ftyp)
+      if (buffer[4] === 0x66 && buffer[5] === 0x74 && buffer[6] === 0x79 && buffer[7] === 0x70) {
+        return 'avif'; // Treat as AVIF (needs conversion)
+      }
+      return 'unknown';
+    };
+
+    const actualType = detectFileType(originalBuffer);
+    console.log('[PROCESS] Detected file type:', actualType, 'from magic bytes');
+
+    // Convert non-standard formats to JPEG for remove.bg compatibility
+    const needsConversion = actualType === 'avif' || actualType === 'unknown';
+    
     if (needsConversion) {
-      originalBuffer = (await sharp(originalBuffer)
-        .jpeg({ quality: 95 })
-        .toBuffer()) as Buffer;
+      try {
+        console.log('[PROCESS] Converting to JPEG...');
+        originalBuffer = (await sharp(originalBuffer)
+          .jpeg({ quality: 95 })
+          .toBuffer()) as Buffer;
+        console.log('[PROCESS] Conversion successful, new size:', originalBuffer.length);
+      } catch (conversionError) {
+        console.error('Image conversion error:', conversionError);
+        return NextResponse.json({ 
+          error: 'Could not process image. The file may be corrupted or in an unsupported format.' 
+        }, { status: 400 });
+      }
     }
 
-    // Check if image is already processed (16:9 aspect ratio)
+    // Check if image is already processed (exact 1920x1080 dimensions only)
     const originalMeta = await sharp(originalBuffer).metadata();
     const originalWidth = originalMeta.width || 1920;
     const originalHeight = originalMeta.height || 1080;
-    const aspectRatio = originalWidth / originalHeight;
-    const is16by9 = Math.abs(aspectRatio - (16/9)) < 0.05; // Within 5% tolerance
+    // Only detect as reprocessed if EXACTLY our output dimensions
+    const is16by9 = originalWidth === 1920 && originalHeight === 1080;
     
     if (is16by9 && DEBUG_MODE) {
-      console.log('Detected already-processed image (16:9), preserving car size');
+      console.log('Detected already-processed image (exactly 1920x1080), preserving car size');
     }
 
     // Step 1: Upload original to Supabase Storage (use outputId to match output filename)
@@ -749,6 +1041,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Step 2: Remove background
+    console.log('[PROCESS] Sending to remove.bg:', {
+      bufferSize: originalBuffer.length,
+      fileType: imageFile.type,
+      fileName: imageFile.name,
+      firstBytes: originalBuffer.slice(0, 10).toString('hex'),
+    });
     const cutoutBuffer = await removeBackground(originalBuffer);
 
     // Step 3: Get user's logo (if exists)
@@ -768,6 +1066,7 @@ export async function POST(request: NextRequest) {
 
     // Step 4: Composite final image
     let effectiveCarScale = carScalePercent;
+    console.log('[PROCESS] Car scale from settings:', carScalePercent, 'is16by9:', is16by9);
     
     // If image is already 16:9 (already processed), calculate and preserve car's current scale
     if (is16by9) {

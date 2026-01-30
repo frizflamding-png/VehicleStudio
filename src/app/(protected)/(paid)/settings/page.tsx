@@ -16,9 +16,9 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue;
 }
  
- const BACKGROUNDS = [
-   { id: 'showroom-grey', label: 'Showroom Grey', preview: '/templates/backgrounds/showroom-grey.jpg' },
- ];
+const BACKGROUNDS = [
+  { id: 'showroom-grey', label: 'Showroom Grey', preview: '/templates/backgrounds/showroom-grey.jpg' },
+];
  const USER_BACKGROUND_PREFIX = 'user:';
  const USER_BACKGROUNDS_BUCKET = 'user-backgrounds';
  
@@ -124,7 +124,8 @@ export default function SettingsPage() {
        .createSignedUrl(`${user.id}.png`, 3600);
      
      if (logoData?.signedUrl) {
-       setLogoUrl(logoData.signedUrl);
+       // Add cache-busting parameter to ensure fresh logo
+       setLogoUrl(`${logoData.signedUrl}&t=${Date.now()}`);
      }
  
      const { data: backgroundFiles } = await supabase.storage
@@ -312,24 +313,35 @@ export default function SettingsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Always save as PNG for consistency
-      // The logo file is uploaded as-is (browser will handle common formats)
       const fileName = `${user.id}.png`;
       
+      // Delete the old file first to clear any caching
+      await supabase.storage
+        .from('logos')
+        .remove([fileName]);
+
+      // Upload the new logo
       const { error: uploadError } = await supabase.storage
         .from('logos')
         .upload(fileName, logoFile, {
           upsert: true,
           contentType: 'image/png',
+          cacheControl: '0', // Disable caching
         });
 
       if (uploadError) throw uploadError;
 
+      // Get signed URL with cache-busting timestamp
       const { data: signedData } = await supabase.storage
         .from('logos')
         .createSignedUrl(fileName, 3600);
 
-      setLogoUrl(signedData?.signedUrl || null);
+      // Add cache-busting parameter
+      const cacheBustedUrl = signedData?.signedUrl 
+        ? `${signedData.signedUrl}&t=${Date.now()}`
+        : null;
+
+      setLogoUrl(cacheBustedUrl);
       setLogoFile(null);
       setLogoPreview(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -376,6 +388,37 @@ export default function SettingsPage() {
     setCarScale(DEFAULT_CAR_SCALE);
     setShadowIntensity(DEFAULT_SHADOW_INTENSITY);
     setMessage({ type: 'success', text: 'Reset to defaults' });
+  };
+
+  const handleRemoveLogo = async () => {
+    if (!supabase) return;
+    
+    setUploading(true);
+    setMessage(null);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const fileName = `${user.id}.png`;
+      
+      const { error: deleteError } = await supabase.storage
+        .from('logos')
+        .remove([fileName]);
+
+      if (deleteError) throw deleteError;
+
+      setLogoUrl(null);
+      setLogoFile(null);
+      setLogoPreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      
+      setMessage({ type: 'success', text: 'Logo removed' });
+    } catch (err) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to remove logo' });
+    } finally {
+      setUploading(false);
+    }
   };
  
    const handleSignOut = async () => {
@@ -434,23 +477,32 @@ export default function SettingsPage() {
                      
                      <div className="flex-1">
                        <p className="text-[11px] text-slate-500 leading-tight mb-1.5">PNG with transparent background</p>
-                       <div className="flex gap-1.5">
-                         <button
-                           onClick={() => fileInputRef.current?.click()}
-                           className="px-2 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-[11px] font-medium transition-colors"
-                         >
-                           {logoPreview ? 'Change' : 'Select'}
-                         </button>
-                         {logoPreview && (
-                           <button
-                             onClick={handleUploadLogo}
-                             disabled={uploading}
-                             className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 rounded text-[11px] font-medium transition-colors disabled:opacity-50"
-                           >
-                             {uploading ? 'Uploading...' : 'Upload'}
-                           </button>
-                         )}
-                       </div>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          className="px-2 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-[11px] font-medium transition-colors"
+                        >
+                          {logoPreview ? 'Change' : 'Select'}
+                        </button>
+                        {logoPreview && (
+                          <button
+                            onClick={handleUploadLogo}
+                            disabled={uploading}
+                            className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 rounded text-[11px] font-medium transition-colors disabled:opacity-50"
+                          >
+                            {uploading ? 'Uploading...' : 'Upload'}
+                          </button>
+                        )}
+                        {logoUrl && !logoPreview && (
+                          <button
+                            onClick={handleRemoveLogo}
+                            disabled={uploading}
+                            className="px-2 py-1 bg-red-600/20 hover:bg-red-600/30 border border-red-600/30 text-red-400 rounded text-[11px] font-medium transition-colors disabled:opacity-50"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
                      </div>
                    </div>
                   <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" onChange={handleLogoChange} className="hidden" />
@@ -672,6 +724,15 @@ export default function SettingsPage() {
                 className="flex-1 py-2 bg-cyan-600 rounded text-sm disabled:opacity-50"
               >
                 {uploading ? 'Uploading...' : 'Upload'}
+              </button>
+            )}
+            {logoUrl && !logoPreview && (
+              <button
+                onClick={handleRemoveLogo}
+                disabled={uploading}
+                className="py-2 px-3 bg-red-600/20 border border-red-600/30 text-red-400 rounded text-sm disabled:opacity-50"
+              >
+                Remove
               </button>
             )}
           </div>

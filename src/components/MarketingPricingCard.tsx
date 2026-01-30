@@ -10,15 +10,35 @@ const PRICING: Record<BillingCycle, { price: string; label: string }> = {
   yearly: { price: '8 990 kr', label: 'per year' },
 };
 
-type MarketingPricingCardProps = {
-  onSubscribe?: () => void;
+// Price IDs from environment
+const MONTHLY_PRICE_ID = process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY ?? '';
+const YEARLY_PRICE_ID = process.env.NEXT_PUBLIC_STRIPE_PRICE_YEARLY ?? '';
+
+type SubscriptionInfo = {
+  status: string | null;
+  priceId: string | null;
 };
 
-export default function MarketingPricingCard({ onSubscribe }: MarketingPricingCardProps) {
+type MarketingPricingCardProps = {
+  onSubscribe?: () => void;
+  subscription?: SubscriptionInfo | null;
+};
+
+export default function MarketingPricingCard({ onSubscribe, subscription }: MarketingPricingCardProps) {
   const [cycle, setCycle] = useState<BillingCycle>('monthly');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const activePricing = PRICING[cycle];
+
+  // Derive subscription state
+  const isActive = subscription?.status === 'active' || subscription?.status === 'trialing';
+  const currentInterval: BillingCycle | null = subscription?.priceId 
+    ? subscription.priceId === MONTHLY_PRICE_ID ? 'monthly' 
+      : subscription.priceId === YEARLY_PRICE_ID ? 'yearly' 
+      : null
+    : null;
+  const isCurrentPlan = isActive && currentInterval === cycle;
+  const canSwitch = isActive && currentInterval !== null && currentInterval !== cycle;
 
   const supabase = useMemo(() => {
     if (!isSupabaseConfigured()) return null;
@@ -33,14 +53,38 @@ export default function MarketingPricingCard({ onSubscribe }: MarketingPricingCa
     window.history.replaceState({}, '', url.toString());
   };
 
+  // Open Stripe Customer Portal for plan changes
+  const handleOpenPortal = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch('/api/stripe/portal', { method: 'POST' });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || 'Unable to open billing portal');
+      }
+      if (data?.url) {
+        window.location.href = data.url;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to open billing portal');
+      setLoading(false);
+    }
+  };
+
   const handleSubscribe = async () => {
+    // If already subscribed to this plan, do nothing
+    if (isCurrentPlan) return;
+    
+    // If subscribed to different plan, open portal to switch
+    if (canSwitch) {
+      return handleOpenPortal();
+    }
+
     setLoading(true);
     setError('');
 
-    const priceId =
-      cycle === 'monthly'
-        ? process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY
-        : process.env.NEXT_PUBLIC_STRIPE_PRICE_YEARLY;
+    const priceId = cycle === 'monthly' ? MONTHLY_PRICE_ID : YEARLY_PRICE_ID;
 
     if (!priceId) {
       setError('Stripe pricing is not configured.');
@@ -77,33 +121,50 @@ export default function MarketingPricingCard({ onSubscribe }: MarketingPricingCa
     }
   };
 
+  // Determine button text
+  const getButtonText = () => {
+    if (loading) return 'Redirecting...';
+    if (isCurrentPlan) return 'Current plan';
+    if (canSwitch) return `Switch to ${cycle === 'monthly' ? 'Monthly' : 'Yearly'}`;
+    return 'Start 7-day free trial';
+  };
+
   return (
     <div className="bg-slate-900 rounded-xl border border-slate-800 p-8 text-left">
-      <div className="flex items-center justify-start mb-6">
+      <div className="flex items-center justify-start gap-3 mb-6">
         <div className="inline-flex rounded-full bg-slate-950 border border-slate-800 p-1">
           <button
             type="button"
             onClick={() => setCycle('monthly')}
-            className={`px-4 py-1.5 text-sm rounded-full transition-colors ${
+            className={`px-4 py-1.5 text-sm rounded-full transition-colors flex items-center gap-1.5 ${
               cycle === 'monthly'
                 ? 'bg-slate-800 text-white'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
             Monthly
+            {isActive && currentInterval === 'monthly' && (
+              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" title="Current plan" />
+            )}
           </button>
           <button
             type="button"
             onClick={() => setCycle('yearly')}
-            className={`px-4 py-1.5 text-sm rounded-full transition-colors ${
+            className={`px-4 py-1.5 text-sm rounded-full transition-colors flex items-center gap-1.5 ${
               cycle === 'yearly'
                 ? 'bg-slate-800 text-white'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
             Yearly
+            {isActive && currentInterval === 'yearly' && (
+              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" title="Current plan" />
+            )}
           </button>
         </div>
+        {isActive && (
+          <span className="text-xs text-emerald-400 font-medium">Subscribed</span>
+        )}
       </div>
 
       <div className="flex items-center gap-3 mb-1">
@@ -170,14 +231,28 @@ export default function MarketingPricingCard({ onSubscribe }: MarketingPricingCa
       <button
         type="button"
         onClick={handleSubscribe}
-        disabled={loading}
-        className="block w-full px-6 py-3 bg-[#1FB6A6] text-white font-medium rounded-lg text-center hover:bg-[#22C6B5] active:bg-[#179E90] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+        disabled={loading || isCurrentPlan}
+        className={`block w-full px-6 py-3 font-medium rounded-lg text-center transition-colors disabled:cursor-not-allowed ${
+          isCurrentPlan 
+            ? 'bg-slate-700 text-slate-400 cursor-not-allowed' 
+            : 'bg-[#1FB6A6] text-white hover:bg-[#22C6B5] active:bg-[#179E90] disabled:opacity-60'
+        }`}
       >
-        {loading ? 'Redirecting...' : 'Start 7-day free trial'}
+        {getButtonText()}
       </button>
-      <p className="mt-3 text-xs text-slate-500 text-center">
-        Card required
-      </p>
+      {isCurrentPlan ? (
+        <p className="mt-3 text-xs text-slate-500 text-center">
+          You&apos;re already on the {currentInterval === 'monthly' ? 'Monthly' : 'Yearly'} plan.
+        </p>
+      ) : canSwitch ? (
+        <p className="mt-3 text-xs text-slate-500 text-center">
+          Opens billing portal to change your plan
+        </p>
+      ) : (
+        <p className="mt-3 text-xs text-slate-500 text-center">
+          Card required
+        </p>
+      )}
     </div>
   );
 }

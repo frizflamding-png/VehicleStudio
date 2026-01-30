@@ -87,6 +87,7 @@ export async function POST(request: Request) {
       mode: 'subscription',
       customer: stripeCustomerId ?? undefined,
       line_items: [{ price: priceId, quantity: 1 }],
+      allow_promotion_codes: true,
       success_url: `${origin}/studio?checkout=success`,
       cancel_url: `${origin}/?checkout=cancel`,
       subscription_data: {

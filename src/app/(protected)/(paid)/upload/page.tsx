@@ -7,9 +7,9 @@
  import Link from 'next/link';
  import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
  
- const BACKGROUNDS = [
-   { id: 'showroom-grey', label: 'Showroom Grey', preview: '/templates/backgrounds/showroom-grey.jpg' },
- ];
+const BACKGROUNDS = [
+  { id: 'showroom-grey', label: 'Showroom Grey', preview: '/templates/backgrounds/showroom-grey.jpg' },
+];
  const USER_BACKGROUND_PREFIX = 'user:';
  const USER_BACKGROUNDS_BUCKET = 'user-backgrounds';
  

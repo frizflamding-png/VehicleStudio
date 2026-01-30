@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import MarketingNavbar from '@/components/MarketingNavbar';
@@ -8,11 +8,43 @@ import MarketingHeroActions from '@/components/MarketingHeroActions';
 import MarketingPricingCard from '@/components/MarketingPricingCard';
 import BeforeAfterSlider from '@/components/BeforeAfterSlider';
 import AuthModal from '@/components/AuthModal';
+import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
 
 export default function Home() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'reset'>('signin');
+  const [subscription, setSubscription] = useState<{ status: string | null; priceId: string | null } | null>(null);
   const router = useRouter();
+
+  const supabase = useMemo(() => {
+    if (!isSupabaseConfigured()) return null;
+    return createClient();
+  }, []);
+
+  // Fetch subscription status for logged-in users
+  useEffect(() => {
+    if (!supabase) return;
+    
+    const fetchSubscription = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('stripe_subscription_status, plan')
+        .eq('id', user.id)
+        .maybeSingle<{ stripe_subscription_status: string | null; plan: string | null }>();
+      
+      if (profile) {
+        setSubscription({
+          status: profile.stripe_subscription_status,
+          priceId: profile.plan,
+        });
+      }
+    };
+    
+    fetchSubscription();
+  }, [supabase]);
 
   const openSignIn = () => {
     setAuthMode('signin');
@@ -353,7 +385,7 @@ export default function Home() {
             <p className="text-sm text-slate-400 mb-4">
               Simple subscription pricing for dealership teams.
             </p>
-            <MarketingPricingCard onSubscribe={openSignUp} />
+            <MarketingPricingCard onSubscribe={openSignUp} subscription={subscription} />
           </div>
         </section>
 
@@ -367,7 +399,7 @@ export default function Home() {
               One flat subscription for full access.
             </p>
             
-            <MarketingPricingCard onSubscribe={openSignUp} />
+            <MarketingPricingCard onSubscribe={openSignUp} subscription={subscription} />
           </div>
         </section>
 

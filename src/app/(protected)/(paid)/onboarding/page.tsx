@@ -5,9 +5,9 @@
  import Image from 'next/image';
  import { createClient, isSupabaseConfigured } from '@/lib/supabase/client';
  
- const BACKGROUNDS = [
-   { id: 'showroom-grey', label: 'Showroom Grey', preview: '/templates/backgrounds/showroom-grey.jpg' },
- ];
+const BACKGROUNDS = [
+  { id: 'showroom-grey', label: 'Showroom Grey', preview: '/templates/backgrounds/showroom-grey.jpg' },
+];
  
  export default function OnboardingPage() {
    const [dealershipName, setDealershipName] = useState('');
